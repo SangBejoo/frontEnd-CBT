@@ -1746,7 +1746,7 @@ export default function TestPage() {
                     <Button
                       colorScheme="gray"
                       variant="outline"
-                      onClick={handleClearAnswer}
+                      onClick={() => handleClearAnswer()}
                       size="md"
                       leftIcon={<Text>↻</Text>}
                     >

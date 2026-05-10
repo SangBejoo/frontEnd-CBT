@@ -193,7 +193,7 @@ export default React.memo(function UsersTab() {
           >
             <option value="all">Semua Role</option>
             <option value="ADMIN">Admin</option>
-            <option value="SISWA">Siswa</option>
+            <option value="USER">User</option>
           </Select>
         </FormControl>
 
