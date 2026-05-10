@@ -26,7 +26,6 @@ import {
   VStack,
   Text,
   HStack,
-  Skeleton,
   Spinner,
   Center,
 } from '@chakra-ui/react';
@@ -36,9 +35,29 @@ import useSWR from 'swr';
 import apiClient from '../services/api';
 import { useSharedData } from '../context';
 
+type TopicCountEntry = {
+  topic_id: number;
+  count: number;
+};
+
+type TopicCountResponse = {
+  counts?: TopicCountEntry[];
+};
+
+type TopicApiPayload = {
+  idMataPelajaran: number;
+  idTingkat: number;
+  nama: string;
+  parentId: number;
+  sequenceOrder: number;
+  isActive: boolean;
+  defaultDurasiMenit: number;
+  defaultJumlahSoal: number;
+};
+
 export default React.memo(function TopicsTab() {
   const { data: topics, loading, create, update, remove } = useCRUD<Topic>('topics');
-  const { levels, subjects } = useSharedData();
+  const { levels, subjects, refreshTopics } = useSharedData();
   const [editingTopic, setEditingTopic] = useState<Topic | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
@@ -47,11 +66,11 @@ export default React.memo(function TopicsTab() {
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const fetcher = useCallback(async (url: string) => {
-    const response = await apiClient.get<any>(url);
+    const response = await apiClient.get<TopicCountResponse>(url);
     return response.data?.counts || [];
   }, []);
 
-  const { data: questionCounts } = useSWR('/question-counts', fetcher, { 
+  const { data: questionCounts } = useSWR<TopicCountEntry[]>('/question-counts', fetcher, { 
     revalidateOnFocus: false, 
     revalidateOnReconnect: false,
     dedupingInterval: 60000, // 1 minute cache
@@ -69,7 +88,7 @@ export default React.memo(function TopicsTab() {
       defaultJumlahSoal: '20',
     },
     onSubmit: async (values) => {
-      const data = {
+      const data: TopicApiPayload = {
         idMataPelajaran: parseInt(values.idMataPelajaran),
         idTingkat: parseInt(values.idTingkat),
         nama: values.nama,
@@ -78,12 +97,13 @@ export default React.memo(function TopicsTab() {
         isActive: values.isActive,
         defaultDurasiMenit: parseInt(values.defaultDurasiMenit),
         defaultJumlahSoal: parseInt(values.defaultJumlahSoal),
-      } as any;
+      };
       if (editingTopic) {
-        await update(editingTopic.id, data);
+        await update(editingTopic.id, data as unknown as Partial<Omit<Topic, 'id'>>);
       } else {
-        await create(data);
+        await create(data as unknown as Omit<Topic, 'id'>);
       }
+      await refreshTopics();
       onClose();
       form.reset();
       setEditingTopic(null);
@@ -98,7 +118,7 @@ export default React.memo(function TopicsTab() {
   const questionCountByTopic = useMemo(() => {
     const countMap: Record<number, number> = {};
     if (questionCounts) {
-      questionCounts.forEach((count: any) => {
+      questionCounts.forEach((count) => {
         countMap[count.topic_id] = count.count;
       });
     }
@@ -111,7 +131,7 @@ export default React.memo(function TopicsTab() {
   );
 
   const filteredTopics = useMemo(() => {
-    let filtered = topics.filter((topic) => {
+    const filtered = topics.filter((topic) => {
       // Search filter
       const matchesSearch =
         topic.nama.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
@@ -183,8 +203,9 @@ export default React.memo(function TopicsTab() {
   const handleDelete = useCallback(
     async (id: number) => {
       await remove(id);
+      await refreshTopics();
     },
-    [remove]
+    [refreshTopics, remove]
   );
 
   return (
