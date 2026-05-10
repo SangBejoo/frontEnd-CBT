@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import React from 'react';
+import { useState, useEffect, useMemo, useCallback } from "react";
+import React from "react";
 import {
   Box,
   Button,
@@ -29,10 +29,10 @@ import {
   HStack,
   Spinner,
   Center,
-} from '@chakra-ui/react';
-import { useCRUD, useForm, usePagination } from '../hooks';
-import { Topic } from '../types';
-import { useSharedData } from '../context';
+} from "@chakra-ui/react";
+import { useCRUD, useForm, usePagination } from "../hooks";
+import { Topic } from "../types";
+import { useSharedData } from "../context";
 
 type TopicApiPayload = {
   idMataPelajaran: number;
@@ -45,65 +45,75 @@ type TopicApiPayload = {
   defaultJumlahSoal: number;
 };
 
-type TopicFormMode = 'parent' | 'sub';
+type TopicFormMode = "parent" | "sub";
 
-const sortTopics = (items: Topic[]) => [...items].sort((a, b) => {
-  if (a.isActive && !b.isActive) return -1;
-  if (!a.isActive && b.isActive) return 1;
+const sortTopics = (items: Topic[]) =>
+  [...items].sort((a, b) => {
+    if (a.isActive && !b.isActive) return -1;
+    if (!a.isActive && b.isActive) return 1;
 
-  const parentA = a.parentId ?? 0;
-  const parentB = b.parentId ?? 0;
-  if (parentA !== parentB) return parentA - parentB;
+    const parentA = a.parentId ?? 0;
+    const parentB = b.parentId ?? 0;
+    if (parentA !== parentB) return parentA - parentB;
 
-  const orderA = a.sequenceOrder ?? 1;
-  const orderB = b.sequenceOrder ?? 1;
-  if (orderA !== orderB) return orderA - orderB;
+    const orderA = a.sequenceOrder ?? 1;
+    const orderB = b.sequenceOrder ?? 1;
+    if (orderA !== orderB) return orderA - orderB;
 
-  return a.nama.localeCompare(b.nama);
-});
+    return a.nama.localeCompare(b.nama);
+  });
 
 export default React.memo(function TopicsTab() {
-  const { data: topics, loading, create, update, remove } = useCRUD<Topic>('topics');
+  const {
+    data: topics,
+    loading,
+    create,
+    update,
+    remove,
+  } = useCRUD<Topic>("topics");
   const { levels, subjects, refreshTopics } = useSharedData();
   const toast = useToast();
   const [editingTopic, setEditingTopic] = useState<Topic | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all'); // 'all', 'active', 'inactive'
-  const [levelFilter, setLevelFilter] = useState<string>('all'); // 'all' or level id
-  const [formMode, setFormMode] = useState<TopicFormMode>('parent');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all"); // 'all', 'active', 'inactive'
+  const [levelFilter, setLevelFilter] = useState<string>("all"); // 'all' or level id
+  const [formMode, setFormMode] = useState<TopicFormMode>("parent");
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const form = useForm({
-    initialValues: { 
-      idMataPelajaran: '', 
-      idTingkat: '', 
-      nama: '',
-      parentId: '',
-      sequenceOrder: '1',
+    initialValues: {
+      idMataPelajaran: "",
+      idTingkat: "",
+      nama: "",
+      parentId: "",
+      sequenceOrder: "1",
       isActive: true,
-      defaultDurasiMenit: '60',
-      defaultJumlahSoal: '20',
+      defaultDurasiMenit: "60",
+      defaultJumlahSoal: "20",
     },
     onSubmit: async (values) => {
-      if (formMode === 'sub' && !values.parentId) {
+      if (formMode === "sub" && !values.parentId) {
         toast({
-          title: 'Parent materi wajib dipilih untuk sub materi',
-          status: 'warning',
+          title: "Parent materi wajib dipilih untuk sub materi",
+          status: "warning",
         });
         return;
       }
 
-      const isParentMode = formMode === 'parent';
-      const resolvedSubjectId = parseInt(values.idMataPelajaran) || parentCreateDefaults.subjectId;
-      const resolvedLevelId = parseInt(values.idTingkat) || parentCreateDefaults.levelId;
+      const isParentMode = formMode === "parent";
+      const resolvedSubjectId =
+        parseInt(values.idMataPelajaran) || parentCreateDefaults.subjectId;
+      const resolvedLevelId =
+        parseInt(values.idTingkat) || parentCreateDefaults.levelId;
       const resolvedSequenceOrder =
-        parseInt(values.sequenceOrder) || (isParentMode ? parentCreateDefaults.nextSequenceOrder : 1);
+        parseInt(values.sequenceOrder) ||
+        (isParentMode ? parentCreateDefaults.nextSequenceOrder : 1);
 
       if (isParentMode && (!resolvedSubjectId || !resolvedLevelId)) {
         toast({
-          title: 'Data mata pelajaran dan tingkat belum tersedia',
-          status: 'warning',
+          title: "Data mata pelajaran dan tingkat belum tersedia",
+          status: "warning",
         });
         return;
       }
@@ -112,16 +122,24 @@ export default React.memo(function TopicsTab() {
         idMataPelajaran: resolvedSubjectId,
         idTingkat: resolvedLevelId,
         nama: values.nama,
-        parentId: formMode === 'sub' && values.parentId ? parseInt(values.parentId) : 0,
+        parentId:
+          formMode === "sub" && values.parentId ? parseInt(values.parentId) : 0,
         sequenceOrder: resolvedSequenceOrder,
         isActive: values.isActive,
-        defaultDurasiMenit: isParentMode ? 0 : parseInt(values.defaultDurasiMenit),
-        defaultJumlahSoal: isParentMode ? 0 : parseInt(values.defaultJumlahSoal),
+        defaultDurasiMenit: isParentMode
+          ? 0
+          : parseInt(values.defaultDurasiMenit),
+        defaultJumlahSoal: isParentMode
+          ? 0
+          : parseInt(values.defaultJumlahSoal),
       };
       if (editingTopic) {
-        await update(editingTopic.id, data as unknown as Partial<Omit<Topic, 'id'>>);
+        await update(
+          editingTopic.id,
+          data as unknown as Partial<Omit<Topic, "id">>,
+        );
       } else {
-        await create(data as unknown as Omit<Topic, 'id'>);
+        await create(data as unknown as Omit<Topic, "id">);
       }
       await refreshTopics();
       handleClose();
@@ -134,19 +152,23 @@ export default React.memo(function TopicsTab() {
   }, [searchQuery]);
 
   const parentOptions = useMemo(
-    () => topics.filter((topic) => {
-      // Exclude self when editing
-      if (editingTopic && topic.id === editingTopic.id) return false;
-      if (topic.parentId) return false;
-      // Only show materials from the same subject + level as potential parent
-      const selectedSubject = parseInt(form.values.idMataPelajaran);
-      const selectedLevel = parseInt(form.values.idTingkat);
-      if (selectedSubject && selectedLevel) {
-        return topic.mataPelajaran.id === selectedSubject && topic.tingkat.id === selectedLevel;
-      }
-      return true;
-    }),
-    [topics, editingTopic, form.values.idMataPelajaran, form.values.idTingkat]
+    () =>
+      topics.filter((topic) => {
+        // Exclude self when editing
+        if (editingTopic && topic.id === editingTopic.id) return false;
+        if (topic.parentId) return false;
+        // Only show materials from the same subject + level as potential parent
+        const selectedSubject = parseInt(form.values.idMataPelajaran);
+        const selectedLevel = parseInt(form.values.idTingkat);
+        if (selectedSubject && selectedLevel) {
+          return (
+            topic.mataPelajaran.id === selectedSubject &&
+            topic.tingkat.id === selectedLevel
+          );
+        }
+        return true;
+      }),
+    [topics, editingTopic, form.values.idMataPelajaran, form.values.idTingkat],
   );
 
   const filteredTopics = useMemo(() => {
@@ -157,18 +179,19 @@ export default React.memo(function TopicsTab() {
         topic.mataPelajaran.nama
           .toLowerCase()
           .includes(debouncedSearchQuery.toLowerCase()) ||
-        topic.tingkat.nama.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
+        topic.tingkat.nama
+          .toLowerCase()
+          .includes(debouncedSearchQuery.toLowerCase());
 
       // Status filter
       const matchesStatus =
-        statusFilter === 'all' ||
-        (statusFilter === 'active' && topic.isActive) ||
-        (statusFilter === 'inactive' && !topic.isActive);
+        statusFilter === "all" ||
+        (statusFilter === "active" && topic.isActive) ||
+        (statusFilter === "inactive" && !topic.isActive);
 
       // Level filter
       const matchesLevel =
-        levelFilter === 'all' ||
-        topic.tingkat.id.toString() === levelFilter;
+        levelFilter === "all" || topic.tingkat.id.toString() === levelFilter;
 
       return matchesSearch && matchesStatus && matchesLevel;
     });
@@ -176,15 +199,27 @@ export default React.memo(function TopicsTab() {
     return sortTopics(filtered);
   }, [topics, debouncedSearchQuery, statusFilter, levelFilter]);
 
-  const allParentTopics = useMemo(() => topics.filter((topic) => !topic.parentId), [topics]);
-  const parentTopics = useMemo(() => filteredTopics.filter((topic) => !topic.parentId), [filteredTopics]);
-  const subTopics = useMemo(() => filteredTopics.filter((topic) => Boolean(topic.parentId)), [filteredTopics]);
+  const allParentTopics = useMemo(
+    () => topics.filter((topic) => !topic.parentId),
+    [topics],
+  );
+  const parentTopics = useMemo(
+    () => filteredTopics.filter((topic) => !topic.parentId),
+    [filteredTopics],
+  );
+  const subTopics = useMemo(
+    () => filteredTopics.filter((topic) => Boolean(topic.parentId)),
+    [filteredTopics],
+  );
   const parentCreateDefaults = useMemo(() => {
     const defaultSource = allParentTopics[0] ?? topics[0] ?? null;
     const subjectId = defaultSource?.mataPelajaran.id ?? subjects[0]?.id ?? 0;
     const levelId = defaultSource?.tingkat.id ?? levels[0]?.id ?? 0;
     const nextSequenceOrder =
-      allParentTopics.reduce((maxOrder, topic) => Math.max(maxOrder, topic.sequenceOrder ?? 1), 0) + 1;
+      allParentTopics.reduce(
+        (maxOrder, topic) => Math.max(maxOrder, topic.sequenceOrder ?? 1),
+        0,
+      ) + 1;
 
     return {
       subjectId,
@@ -209,43 +244,67 @@ export default React.memo(function TopicsTab() {
     prevPage: prevSubPage,
   } = usePagination(subTopics, { itemsPerPage: 10 });
 
-  const handleCreate = useCallback((mode: TopicFormMode) => {
-    setFormMode(mode);
-    setEditingTopic(null);
-    form.reset();
-    if (mode === 'parent') {
-      if (parentCreateDefaults.subjectId > 0) {
-        form.setFieldValue('idMataPelajaran', parentCreateDefaults.subjectId.toString());
+  const handleCreate = useCallback(
+    (mode: TopicFormMode) => {
+      setFormMode(mode);
+      setEditingTopic(null);
+      form.reset();
+      if (mode === "parent") {
+        if (parentCreateDefaults.subjectId > 0) {
+          form.setFieldValue(
+            "idMataPelajaran",
+            parentCreateDefaults.subjectId.toString(),
+          );
+        }
+        if (parentCreateDefaults.levelId > 0) {
+          form.setFieldValue(
+            "idTingkat",
+            parentCreateDefaults.levelId.toString(),
+          );
+        }
+        form.setFieldValue(
+          "sequenceOrder",
+          parentCreateDefaults.nextSequenceOrder.toString(),
+        );
       }
-      if (parentCreateDefaults.levelId > 0) {
-        form.setFieldValue('idTingkat', parentCreateDefaults.levelId.toString());
-      }
-      form.setFieldValue('sequenceOrder', parentCreateDefaults.nextSequenceOrder.toString());
-    }
-    onOpen();
-  }, [form, onOpen, parentCreateDefaults]);
+      onOpen();
+    },
+    [form, onOpen, parentCreateDefaults],
+  );
 
   const handleEdit = useCallback(
     (topic: Topic) => {
       setEditingTopic(topic);
-      setFormMode(topic.parentId ? 'sub' : 'parent');
-      form.setFieldValue('idMataPelajaran', topic.mataPelajaran.id.toString());
-      form.setFieldValue('idTingkat', topic.tingkat.id.toString());
-      form.setFieldValue('nama', topic.nama);
-      form.setFieldValue('parentId', topic.parentId ? topic.parentId.toString() : '');
-      form.setFieldValue('sequenceOrder', (topic.sequenceOrder ?? 1).toString());
-      form.setFieldValue('isActive', topic.isActive ?? true);
-      form.setFieldValue('defaultDurasiMenit', (topic.defaultDurasiMenit ?? 60).toString());
-      form.setFieldValue('defaultJumlahSoal', (topic.defaultJumlahSoal ?? 20).toString());
+      setFormMode(topic.parentId ? "sub" : "parent");
+      form.setFieldValue("idMataPelajaran", topic.mataPelajaran.id.toString());
+      form.setFieldValue("idTingkat", topic.tingkat.id.toString());
+      form.setFieldValue("nama", topic.nama);
+      form.setFieldValue(
+        "parentId",
+        topic.parentId ? topic.parentId.toString() : "",
+      );
+      form.setFieldValue(
+        "sequenceOrder",
+        (topic.sequenceOrder ?? 1).toString(),
+      );
+      form.setFieldValue("isActive", topic.isActive ?? true);
+      form.setFieldValue(
+        "defaultDurasiMenit",
+        (topic.defaultDurasiMenit ?? 60).toString(),
+      );
+      form.setFieldValue(
+        "defaultJumlahSoal",
+        (topic.defaultJumlahSoal ?? 20).toString(),
+      );
       onOpen();
     },
-    [form, onOpen]
+    [form, onOpen],
   );
 
   const handleClose = useCallback(() => {
     onClose();
     setEditingTopic(null);
-    setFormMode('parent');
+    setFormMode("parent");
     form.reset();
   }, [form, onClose]);
 
@@ -254,7 +313,7 @@ export default React.memo(function TopicsTab() {
       await remove(id);
       await refreshTopics();
     },
-    [refreshTopics, remove]
+    [refreshTopics, remove],
   );
 
   const renderTopicSection = ({
@@ -286,9 +345,10 @@ export default React.memo(function TopicsTab() {
     showSequenceOrderColumn: boolean;
     durationLabel: string;
     questionCountLabel: string;
-    questionCountDisplayMode: 'total' | 'ratio';
+    questionCountDisplayMode: "total" | "ratio";
   }) => {
-    const { paginatedItems, currentPage, totalPages, nextPage, prevPage } = pagination;
+    const { paginatedItems, currentPage, totalPages, nextPage, prevPage } =
+      pagination;
 
     return (
       <Box mb={10}>
@@ -347,27 +407,50 @@ export default React.memo(function TopicsTab() {
                     {showParentColumn && (
                       <Td>
                         {topic.parentId
-                          ? topics.find((parent) => parent.id === topic.parentId)?.nama || `Parent #${topic.parentId}`
-                          : '-'}
+                          ? topics.find(
+                              (parent) => parent.id === topic.parentId,
+                            )?.nama || `Parent #${topic.parentId}`
+                          : "-"}
                       </Td>
                     )}
-                    {showSequenceOrderColumn && <Td>{topic.sequenceOrder ?? 1}</Td>}
-                    <Td>{topic.isActive ? '✓ Aktif' : '✗ Tidak Aktif'}</Td>
+                    {showSequenceOrderColumn && (
+                      <Td>{topic.sequenceOrder ?? 1}</Td>
+                    )}
+                    <Td>{topic.isActive ? "✓ Aktif" : "✗ Tidak Aktif"}</Td>
                     <Td>{topic.defaultDurasiMenit ?? 0}</Td>
                     <Td>
-                      {questionCountDisplayMode === 'total' || (topic.defaultJumlahSoal ?? 0) <= 0 ? (
-                        <Text fontWeight="semibold">{topic.jumlahSoalReal ?? 0}</Text>
+                      {questionCountDisplayMode === "total" ||
+                      (topic.defaultJumlahSoal ?? 0) <= 0 ? (
+                        <Text fontWeight="semibold">
+                          {topic.jumlahSoalReal ?? 0}
+                        </Text>
                       ) : (
-                        <Text color={(topic.jumlahSoalReal || 0) < (topic.defaultJumlahSoal ?? 20) ? 'red.500' : 'green.500'}>
-                          {topic.jumlahSoalReal || 0} / {topic.defaultJumlahSoal ?? 20}
+                        <Text
+                          color={
+                            (topic.jumlahSoalReal || 0) <
+                            (topic.defaultJumlahSoal ?? 20)
+                              ? "red.500"
+                              : "green.500"
+                          }
+                        >
+                          {topic.jumlahSoalReal || 0} /{" "}
+                          {topic.defaultJumlahSoal ?? 20}
                         </Text>
                       )}
                     </Td>
                     <Td>
-                      <Button size="sm" mr={2} onClick={() => handleEdit(topic)}>
+                      <Button
+                        size="sm"
+                        mr={2}
+                        onClick={() => handleEdit(topic)}
+                      >
                         Edit
                       </Button>
-                      <Button size="sm" colorScheme="red" onClick={() => handleDelete(topic.id)}>
+                      <Button
+                        size="sm"
+                        colorScheme="red"
+                        onClick={() => handleDelete(topic.id)}
+                      >
                         Hapus
                       </Button>
                     </Td>
@@ -375,14 +458,25 @@ export default React.memo(function TopicsTab() {
                 ))}
               </Tbody>
             </Table>
-            <Box mt={4} display="flex" justifyContent="space-between" alignItems="center">
-              <Button isDisabled={totalPages <= 1 || currentPage === 1} onClick={prevPage}>
+            <Box
+              mt={4}
+              display="flex"
+              justifyContent="space-between"
+              alignItems="center"
+            >
+              <Button
+                isDisabled={totalPages <= 1 || currentPage === 1}
+                onClick={prevPage}
+              >
                 Prev
               </Button>
               <Text>
                 Halaman {currentPage} dari {totalPages || 1}
               </Text>
-              <Button isDisabled={totalPages <= 1 || currentPage === totalPages} onClick={nextPage}>
+              <Button
+                isDisabled={totalPages <= 1 || currentPage === totalPages}
+                onClick={nextPage}
+              >
                 Next
               </Button>
             </Box>
@@ -404,243 +498,265 @@ export default React.memo(function TopicsTab() {
       )}
       {!loading && (
         <>
-      <Input
-        placeholder="Cari materi, mata pelajaran, atau tingkat..."
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        mb={4}
-      />
-      <HStack spacing={4} mb={4}>
-        <FormControl maxW="200px">
-          <FormLabel fontSize="sm">Filter Status</FormLabel>
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="all">Semua Status</option>
-            <option value="active">Aktif</option>
-            <option value="inactive">Tidak Aktif</option>
-          </Select>
-        </FormControl>
-        <FormControl maxW="200px">
-          <FormLabel fontSize="sm">Filter Tingkat</FormLabel>
-          <Select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
-            <option value="all">Semua Tingkat</option>
-            {levels.map((level) => (
-              <option key={level.id} value={level.id.toString()}>
-                {level.nama}
-              </option>
-            ))}
-          </Select>
-        </FormControl>
-      </HStack>
-      {renderTopicSection({
-        title: 'Parent Materi',
-        description: 'Materi utama yang tampil ke user. Durasi dan jumlah soal dihitung dari sub materi.',
-        createLabel: 'Tambah Parent Materi',
-        onCreateClick: () => handleCreate('parent'),
-        sectionTopics: parentTopics,
-        pagination: {
-          paginatedItems: paginatedParentTopics,
-          currentPage: parentCurrentPage,
-          totalPages: parentTotalPages,
-          nextPage: nextParentPage,
-          prevPage: prevParentPage,
-        },
-        showParentColumn: false,
-        showSequenceOrderColumn: false,
-        durationLabel: 'Durasi Total (menit)',
-        questionCountLabel: 'Jumlah Soal Total',
-        questionCountDisplayMode: 'total',
-      })}
+          <Input
+            placeholder="Cari materi, mata pelajaran, atau tingkat..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            mb={4}
+          />
+          <HStack spacing={4} mb={4}>
+            <FormControl maxW="200px">
+              <FormLabel fontSize="sm">Filter Status</FormLabel>
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">Semua Status</option>
+                <option value="active">Aktif</option>
+                <option value="inactive">Tidak Aktif</option>
+              </Select>
+            </FormControl>
+            <FormControl maxW="200px">
+              <FormLabel fontSize="sm">Filter Tingkat</FormLabel>
+              <Select
+                value={levelFilter}
+                onChange={(e) => setLevelFilter(e.target.value)}
+              >
+                <option value="all">Semua Tingkat</option>
+                {levels.map((level) => (
+                  <option key={level.id} value={level.id.toString()}>
+                    {level.nama}
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+          </HStack>
+          {renderTopicSection({
+            title: "Parent Materi",
+            description:
+              "Materi utama yang tampil ke user. Durasi dan jumlah soal dihitung dari sub materi.",
+            createLabel: "Tambah Parent Materi",
+            onCreateClick: () => handleCreate("parent"),
+            sectionTopics: parentTopics,
+            pagination: {
+              paginatedItems: paginatedParentTopics,
+              currentPage: parentCurrentPage,
+              totalPages: parentTotalPages,
+              nextPage: nextParentPage,
+              prevPage: prevParentPage,
+            },
+            showParentColumn: false,
+            showSequenceOrderColumn: false,
+            durationLabel: "Durasi Total (menit)",
+            questionCountLabel: "Jumlah Soal Total",
+            questionCountDisplayMode: "total",
+          })}
 
-      {renderTopicSection({
-        title: 'Sub Materi',
-        description: 'Sub materi tempat input soal dilakukan.',
-        createLabel: 'Tambah Sub Materi',
-        onCreateClick: () => handleCreate('sub'),
-        sectionTopics: subTopics,
-        pagination: {
-          paginatedItems: paginatedSubTopics,
-          currentPage: subCurrentPage,
-          totalPages: subTotalPages,
-          nextPage: nextSubPage,
-          prevPage: prevSubPage,
-        },
-        showParentColumn: true,
-        showSequenceOrderColumn: true,
-        durationLabel: 'Durasi (menit)',
-        questionCountLabel: 'Jumlah Soal',
-        questionCountDisplayMode: 'ratio',
-      })}
+          {renderTopicSection({
+            title: "Sub Materi",
+            description: "Sub materi tempat input soal dilakukan.",
+            createLabel: "Tambah Sub Materi",
+            onCreateClick: () => handleCreate("sub"),
+            sectionTopics: subTopics,
+            pagination: {
+              paginatedItems: paginatedSubTopics,
+              currentPage: subCurrentPage,
+              totalPages: subTotalPages,
+              nextPage: nextSubPage,
+              prevPage: prevSubPage,
+            },
+            showParentColumn: true,
+            showSequenceOrderColumn: true,
+            durationLabel: "Durasi (menit)",
+            questionCountLabel: "Jumlah Soal",
+            questionCountDisplayMode: "ratio",
+          })}
 
-      <Modal isOpen={isOpen} onClose={handleClose}>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>
-            {editingTopic
-              ? formMode === 'sub'
-                ? 'Edit Sub Materi'
-                : 'Edit Parent Materi'
-              : formMode === 'sub'
-                ? 'Tambah Sub Materi'
-                : 'Tambah Parent Materi'}
-          </ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4}>
-              {formMode === 'sub' ? (
-                <>
-                  <FormControl>
-                    <FormLabel>Mata Pelajaran</FormLabel>
-                    <Select
-                      name="idMataPelajaran"
-                      value={form.values.idMataPelajaran}
-                      onChange={form.handleChange}
-                      placeholder="Pilih mata pelajaran"
-                    >
-                      {subjects.map((subject) => (
-                        <option key={subject.id} value={subject.id.toString()}>
-                          {subject.nama}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormControl>
-                    <FormLabel>Tingkat</FormLabel>
-                    <Select
-                      name="idTingkat"
-                      value={form.values.idTingkat}
-                      onChange={form.handleChange}
-                      placeholder="Pilih tingkat"
-                    >
-                      {levels.map((level) => (
-                        <option key={level.id} value={level.id.toString()}>
-                          {level.nama}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </>
-              ) : null}
-              {formMode === 'sub' && (
-                <FormControl isRequired>
-                  <FormLabel>Parent Materi</FormLabel>
-                  <Select
-                    name="parentId"
-                    value={form.values.parentId}
-                    onChange={form.handleChange}
-                    placeholder="Pilih parent materi"
-                  >
-                    {parentOptions.map((topic) => (
-                      <option key={topic.id} value={topic.id.toString()}>
-                        {topic.mataPelajaran.nama} - {topic.tingkat.nama} - {topic.nama}
-                      </option>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-              {formMode === 'sub' ? (
-                <FormControl>
-                  <FormLabel>Urutan Dalam Parent</FormLabel>
-                  <Input
-                    name="sequenceOrder"
-                    type="number"
-                    value={form.values.sequenceOrder}
-                    onChange={form.handleChange}
-                    placeholder="1"
-                    min="1"
-                  />
-                </FormControl>
-              ) : null}
-              <FormControl>
-                <FormLabel>Nama Materi</FormLabel>
-                <Input
-                  name="nama"
-                  value={form.values.nama}
-                  onChange={form.handleChange}
-                  placeholder="Masukkan nama materi"
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Status</FormLabel>
-                <Select
-                  name="isActive"
-                  value={form.values.isActive ? 'true' : 'false'}
-                  onChange={(e) => form.setFieldValue('isActive', e.target.value === 'true')}
-                >
-                  <option value="true">✓ Aktif (Tampilkan ke Siswa)</option>
-                  <option value="false">✗ Tidak Aktif (Sembunyikan dari Siswa)</option>
-                </Select>
-              </FormControl>
-              {formMode === 'parent' ? (
-                <Box
-                  w="full"
-                  borderWidth="1px"
-                  borderColor="orange.200"
-                  bg="orange.50"
-                  borderRadius="md"
-                  p={3}
-                >
-                  <Text fontSize="sm" color="orange.700" fontWeight="medium">
-                    Parent materi hanya cangkang. Mata pelajaran, tingkat, urutan, durasi, dan jumlah soal diatur otomatis dari sub materi.
-                  </Text>
-                  {editingTopic && (
-                    <Text fontSize="sm" color="gray.600" mt={2}>
-                      Total saat ini: {editingTopic.defaultDurasiMenit ?? 0} menit, {editingTopic.jumlahSoalReal ?? 0} soal.
-                    </Text>
+          <Modal isOpen={isOpen} onClose={handleClose}>
+            <ModalOverlay />
+            <ModalContent>
+              <ModalHeader>
+                {editingTopic
+                  ? formMode === "sub"
+                    ? "Edit Sub Materi"
+                    : "Edit Parent Materi"
+                  : formMode === "sub"
+                    ? "Tambah Sub Materi"
+                    : "Tambah Parent Materi"}
+              </ModalHeader>
+              <ModalCloseButton />
+              <ModalBody>
+                <VStack spacing={4}>
+                  {formMode === "sub" ? (
+                    <>
+                      <FormControl>
+                        <FormLabel>Mata Pelajaran</FormLabel>
+                        <Select
+                          name="idMataPelajaran"
+                          value={form.values.idMataPelajaran}
+                          onChange={form.handleChange}
+                          placeholder="Pilih mata pelajaran"
+                        >
+                          {subjects.map((subject) => (
+                            <option
+                              key={subject.id}
+                              value={subject.id.toString()}
+                            >
+                              {subject.nama}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Tingkat</FormLabel>
+                        <Select
+                          name="idTingkat"
+                          value={form.values.idTingkat}
+                          onChange={form.handleChange}
+                          placeholder="Pilih tingkat"
+                        >
+                          {levels.map((level) => (
+                            <option key={level.id} value={level.id.toString()}>
+                              {level.nama}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </>
+                  ) : null}
+                  {formMode === "sub" && (
+                    <FormControl isRequired>
+                      <FormLabel>Parent Materi</FormLabel>
+                      <Select
+                        name="parentId"
+                        value={form.values.parentId}
+                        onChange={form.handleChange}
+                        placeholder="Pilih parent materi"
+                      >
+                        {parentOptions.map((topic) => (
+                          <option key={topic.id} value={topic.id.toString()}>
+                            {topic.mataPelajaran.nama} - {topic.tingkat.nama} -{" "}
+                            {topic.nama}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormControl>
                   )}
-                </Box>
-              ) : (
-                <>
+                  {formMode === "sub" ? (
+                    <FormControl>
+                      <FormLabel>Urutan Dalam Parent</FormLabel>
+                      <Input
+                        name="sequenceOrder"
+                        type="number"
+                        value={form.values.sequenceOrder}
+                        onChange={form.handleChange}
+                        placeholder="1"
+                        min="1"
+                      />
+                    </FormControl>
+                  ) : null}
                   <FormControl>
-                    <FormLabel>Durasi Pengerjaan (menit)</FormLabel>
+                    <FormLabel>Nama Materi</FormLabel>
                     <Input
-                      name="defaultDurasiMenit"
-                      type="number"
-                      value={form.values.defaultDurasiMenit}
+                      name="nama"
+                      value={form.values.nama}
                       onChange={form.handleChange}
-                      placeholder="60"
-                      min="1"
+                      placeholder="Masukkan nama materi"
                     />
                   </FormControl>
                   <FormControl>
-                    <FormLabel>Jumlah Soal</FormLabel>
-                    <Input
-                      name="defaultJumlahSoal"
-                      type="number"
-                      value={form.values.defaultJumlahSoal}
-                      onChange={form.handleChange}
-                      placeholder="20"
-                      min="1"
-                    />
-                    {editingTopic && (
-                      <Text fontSize="sm" color="gray.600" mt={1}>
-                        Soal saat ini: {editingTopic.jumlahSoalReal ?? 0}
+                    <FormLabel>Status</FormLabel>
+                    <Select
+                      name="isActive"
+                      value={form.values.isActive ? "true" : "false"}
+                      onChange={(e) =>
+                        form.setFieldValue(
+                          "isActive",
+                          e.target.value === "true",
+                        )
+                      }
+                    >
+                      <option value="true">✓ Aktif (Tampilkan ke Siswa)</option>
+                      <option value="false">
+                        ✗ Tidak Aktif (Sembunyikan dari Siswa)
+                      </option>
+                    </Select>
+                  </FormControl>
+                  {formMode === "parent" ? (
+                    <Box
+                      w="full"
+                      borderWidth="1px"
+                      borderColor="orange.200"
+                      bg="orange.50"
+                      borderRadius="md"
+                      p={3}
+                    >
+                      <Text
+                        fontSize="sm"
+                        color="orange.700"
+                        fontWeight="medium"
+                      >
+                        Parent materi hanya cangkang. Mata pelajaran, tingkat,
+                        durasi, dan jumlah soal diambil dari sub materi. Urutan
+                        diatur pada sub materi.
                       </Text>
-                    )}
-                  </FormControl>
-                </>
-              )}
-            </VStack>
-          </ModalBody>
-          <ModalFooter>
-            <Button
-              colorScheme="purple"
-              mr={3}
-              onClick={() => form.handleSubmit()}
-              isLoading={form.isSubmitting}
-            >
-              Simpan
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={handleClose}
-            >
-              Batal
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-      </>
+                      {editingTopic && (
+                        <Text fontSize="sm" color="gray.600" mt={2}>
+                          Total saat ini: {editingTopic.defaultDurasiMenit ?? 0}{" "}
+                          menit, {editingTopic.jumlahSoalReal ?? 0} soal.
+                        </Text>
+                      )}
+                    </Box>
+                  ) : (
+                    <>
+                      <FormControl>
+                        <FormLabel>Durasi Pengerjaan (menit)</FormLabel>
+                        <Input
+                          name="defaultDurasiMenit"
+                          type="number"
+                          value={form.values.defaultDurasiMenit}
+                          onChange={form.handleChange}
+                          placeholder="60"
+                          min="1"
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Jumlah Soal</FormLabel>
+                        <Input
+                          name="defaultJumlahSoal"
+                          type="number"
+                          value={form.values.defaultJumlahSoal}
+                          onChange={form.handleChange}
+                          placeholder="20"
+                          min="1"
+                        />
+                        {editingTopic && (
+                          <Text fontSize="sm" color="gray.600" mt={1}>
+                            Soal saat ini: {editingTopic.jumlahSoalReal ?? 0}
+                          </Text>
+                        )}
+                      </FormControl>
+                    </>
+                  )}
+                </VStack>
+              </ModalBody>
+              <ModalFooter>
+                <Button
+                  colorScheme="purple"
+                  mr={3}
+                  onClick={() => form.handleSubmit()}
+                  isLoading={form.isSubmitting}
+                >
+                  Simpan
+                </Button>
+                <Button variant="ghost" onClick={handleClose}>
+                  Batal
+                </Button>
+              </ModalFooter>
+            </ModalContent>
+          </Modal>
+        </>
       )}
     </Box>
   );
-})
+});
