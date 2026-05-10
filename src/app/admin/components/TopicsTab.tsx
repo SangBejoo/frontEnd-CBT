@@ -95,12 +95,25 @@ export default React.memo(function TopicsTab() {
       }
 
       const isParentMode = formMode === 'parent';
+      const resolvedSubjectId = parseInt(values.idMataPelajaran) || parentCreateDefaults.subjectId;
+      const resolvedLevelId = parseInt(values.idTingkat) || parentCreateDefaults.levelId;
+      const resolvedSequenceOrder =
+        parseInt(values.sequenceOrder) || (isParentMode ? parentCreateDefaults.nextSequenceOrder : 1);
+
+      if (isParentMode && (!resolvedSubjectId || !resolvedLevelId)) {
+        toast({
+          title: 'Data mata pelajaran dan tingkat belum tersedia',
+          status: 'warning',
+        });
+        return;
+      }
+
       const data: TopicApiPayload = {
-        idMataPelajaran: parseInt(values.idMataPelajaran),
-        idTingkat: parseInt(values.idTingkat),
+        idMataPelajaran: resolvedSubjectId,
+        idTingkat: resolvedLevelId,
         nama: values.nama,
         parentId: formMode === 'sub' && values.parentId ? parseInt(values.parentId) : 0,
-        sequenceOrder: parseInt(values.sequenceOrder) || 1,
+        sequenceOrder: resolvedSequenceOrder,
         isActive: values.isActive,
         defaultDurasiMenit: isParentMode ? 0 : parseInt(values.defaultDurasiMenit),
         defaultJumlahSoal: isParentMode ? 0 : parseInt(values.defaultJumlahSoal),
@@ -163,8 +176,22 @@ export default React.memo(function TopicsTab() {
     return sortTopics(filtered);
   }, [topics, debouncedSearchQuery, statusFilter, levelFilter]);
 
+  const allParentTopics = useMemo(() => topics.filter((topic) => !topic.parentId), [topics]);
   const parentTopics = useMemo(() => filteredTopics.filter((topic) => !topic.parentId), [filteredTopics]);
   const subTopics = useMemo(() => filteredTopics.filter((topic) => Boolean(topic.parentId)), [filteredTopics]);
+  const parentCreateDefaults = useMemo(() => {
+    const defaultSource = allParentTopics[0] ?? topics[0] ?? null;
+    const subjectId = defaultSource?.mataPelajaran.id ?? subjects[0]?.id ?? 0;
+    const levelId = defaultSource?.tingkat.id ?? levels[0]?.id ?? 0;
+    const nextSequenceOrder =
+      allParentTopics.reduce((maxOrder, topic) => Math.max(maxOrder, topic.sequenceOrder ?? 1), 0) + 1;
+
+    return {
+      subjectId,
+      levelId,
+      nextSequenceOrder,
+    };
+  }, [allParentTopics, topics, subjects, levels]);
 
   const {
     paginatedItems: paginatedParentTopics,
@@ -186,8 +213,17 @@ export default React.memo(function TopicsTab() {
     setFormMode(mode);
     setEditingTopic(null);
     form.reset();
+    if (mode === 'parent') {
+      if (parentCreateDefaults.subjectId > 0) {
+        form.setFieldValue('idMataPelajaran', parentCreateDefaults.subjectId.toString());
+      }
+      if (parentCreateDefaults.levelId > 0) {
+        form.setFieldValue('idTingkat', parentCreateDefaults.levelId.toString());
+      }
+      form.setFieldValue('sequenceOrder', parentCreateDefaults.nextSequenceOrder.toString());
+    }
     onOpen();
-  }, [form, onOpen]);
+  }, [form, onOpen, parentCreateDefaults]);
 
   const handleEdit = useCallback(
     (topic: Topic) => {
@@ -229,6 +265,7 @@ export default React.memo(function TopicsTab() {
     sectionTopics,
     pagination,
     showParentColumn,
+    showSequenceOrderColumn,
     durationLabel,
     questionCountLabel,
     questionCountDisplayMode,
@@ -246,6 +283,7 @@ export default React.memo(function TopicsTab() {
       prevPage: () => void;
     };
     showParentColumn: boolean;
+    showSequenceOrderColumn: boolean;
     durationLabel: string;
     questionCountLabel: string;
     questionCountDisplayMode: 'total' | 'ratio';
@@ -293,7 +331,7 @@ export default React.memo(function TopicsTab() {
                   <Th>Tingkat</Th>
                   <Th>Nama Materi</Th>
                   {showParentColumn && <Th>Parent</Th>}
-                  <Th>Urutan</Th>
+                  {showSequenceOrderColumn && <Th>Urutan</Th>}
                   <Th>Status</Th>
                   <Th>{durationLabel}</Th>
                   <Th>{questionCountLabel}</Th>
@@ -313,7 +351,7 @@ export default React.memo(function TopicsTab() {
                           : '-'}
                       </Td>
                     )}
-                    <Td>{topic.sequenceOrder ?? 1}</Td>
+                    {showSequenceOrderColumn && <Td>{topic.sequenceOrder ?? 1}</Td>}
                     <Td>{topic.isActive ? '✓ Aktif' : '✗ Tidak Aktif'}</Td>
                     <Td>{topic.defaultDurasiMenit ?? 0}</Td>
                     <Td>
@@ -407,6 +445,7 @@ export default React.memo(function TopicsTab() {
           prevPage: prevParentPage,
         },
         showParentColumn: false,
+        showSequenceOrderColumn: false,
         durationLabel: 'Durasi Total (menit)',
         questionCountLabel: 'Jumlah Soal Total',
         questionCountDisplayMode: 'total',
@@ -426,6 +465,7 @@ export default React.memo(function TopicsTab() {
           prevPage: prevSubPage,
         },
         showParentColumn: true,
+        showSequenceOrderColumn: true,
         durationLabel: 'Durasi (menit)',
         questionCountLabel: 'Jumlah Soal',
         questionCountDisplayMode: 'ratio',
@@ -446,36 +486,40 @@ export default React.memo(function TopicsTab() {
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4}>
-              <FormControl>
-                <FormLabel>Mata Pelajaran</FormLabel>
-                <Select
-                  name="idMataPelajaran"
-                  value={form.values.idMataPelajaran}
-                  onChange={form.handleChange}
-                  placeholder="Pilih mata pelajaran"
-                >
-                  {subjects.map((subject) => (
-                    <option key={subject.id} value={subject.id.toString()}>
-                      {subject.nama}
-                    </option>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl>
-                <FormLabel>Tingkat</FormLabel>
-                <Select
-                  name="idTingkat"
-                  value={form.values.idTingkat}
-                  onChange={form.handleChange}
-                  placeholder="Pilih tingkat"
-                >
-                  {levels.map((level) => (
-                    <option key={level.id} value={level.id.toString()}>
-                      {level.nama}
-                    </option>
-                  ))}
-                </Select>
-              </FormControl>
+              {formMode === 'sub' ? (
+                <>
+                  <FormControl>
+                    <FormLabel>Mata Pelajaran</FormLabel>
+                    <Select
+                      name="idMataPelajaran"
+                      value={form.values.idMataPelajaran}
+                      onChange={form.handleChange}
+                      placeholder="Pilih mata pelajaran"
+                    >
+                      {subjects.map((subject) => (
+                        <option key={subject.id} value={subject.id.toString()}>
+                          {subject.nama}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>Tingkat</FormLabel>
+                    <Select
+                      name="idTingkat"
+                      value={form.values.idTingkat}
+                      onChange={form.handleChange}
+                      placeholder="Pilih tingkat"
+                    >
+                      {levels.map((level) => (
+                        <option key={level.id} value={level.id.toString()}>
+                          {level.nama}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </>
+              ) : null}
               {formMode === 'sub' && (
                 <FormControl isRequired>
                   <FormLabel>Parent Materi</FormLabel>
@@ -493,17 +537,19 @@ export default React.memo(function TopicsTab() {
                   </Select>
                 </FormControl>
               )}
-              <FormControl>
-                <FormLabel>{formMode === 'sub' ? 'Urutan Dalam Parent' : 'Urutan Parent'}</FormLabel>
-                <Input
-                  name="sequenceOrder"
-                  type="number"
-                  value={form.values.sequenceOrder}
-                  onChange={form.handleChange}
-                  placeholder="1"
-                  min="1"
-                />
-              </FormControl>
+              {formMode === 'sub' ? (
+                <FormControl>
+                  <FormLabel>Urutan Dalam Parent</FormLabel>
+                  <Input
+                    name="sequenceOrder"
+                    type="number"
+                    value={form.values.sequenceOrder}
+                    onChange={form.handleChange}
+                    placeholder="1"
+                    min="1"
+                  />
+                </FormControl>
+              ) : null}
               <FormControl>
                 <FormLabel>Nama Materi</FormLabel>
                 <Input
@@ -534,7 +580,7 @@ export default React.memo(function TopicsTab() {
                   p={3}
                 >
                   <Text fontSize="sm" color="orange.700" fontWeight="medium">
-                    Parent materi hanya cangkang. Durasi dan jumlah soal dihitung otomatis dari sub materi.
+                    Parent materi hanya cangkang. Mata pelajaran, tingkat, urutan, durasi, dan jumlah soal diatur otomatis dari sub materi.
                   </Text>
                   {editingTopic && (
                     <Text fontSize="sm" color="gray.600" mt={2}>

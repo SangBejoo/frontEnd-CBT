@@ -191,10 +191,6 @@ export default function SessionsPage() {
         const payload = {
           nama_peserta: user.nama,
           id_materi: selectedTopic.id,
-          id_tingkat: selectedTopic.tingkat.id,
-          id_mata_pelajaran: selectedTopic.mataPelajaran.id,
-          durasi_menit: durasiMenit,
-          jumlah_soal: jumlahSoal,
         };
 
         const response = await axios.post(CREATE_SESSION_API, payload, {
