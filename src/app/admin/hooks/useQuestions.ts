@@ -253,6 +253,37 @@ export function useQuestions(options: UseQuestionsOptions = { autoFetch: true })
     [toast, setQuestions]
   );
 
+  const bulkCreateQuestions = useCallback(
+    async (items: Partial<Question>[]) => {
+      try {
+        const response = await apiClient.post<any>('/questions/bulk', { soal: items });
+        mutateQuestions();
+        return response.data?.results || response.data?.data?.results || response.data;
+      } catch (error: any) {
+        const message =
+          error.response?.data?.message || error.message || 'Gagal bulk import soal';
+        toast({
+          title: 'Error',
+          description: message,
+          status: 'error',
+        });
+        throw error;
+      }
+    },
+    [toast, mutateQuestions]
+  );
+
+  const downloadQuestionTemplate = useCallback(async () => {
+    try {
+      const response = await apiClient.get<any>('/questions/bulk/template', {
+        responseType: 'json',
+      });
+      return response.data?.data || response.data;
+    } catch {
+      return null;
+    }
+  }, []);
+
   return {
     questions: questionsState,
     levels,
@@ -268,5 +299,7 @@ export function useQuestions(options: UseQuestionsOptions = { autoFetch: true })
     deleteQuestion,
     uploadImage,
     deleteImage,
+    bulkCreateQuestions,
+    downloadQuestionTemplate,
   };
 }

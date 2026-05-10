@@ -19,7 +19,6 @@ import {
   FormLabel,
   Input,
   Select,
-  Textarea,
   useToast,
   HStack,
   VStack,
@@ -48,6 +47,8 @@ import {
   Stack,
 } from '@chakra-ui/react';
 import { EditIcon, DeleteIcon, AddIcon, DragHandleIcon } from '@chakra-ui/icons';
+import RichTextEditor from './RichTextEditor';
+import { hasRenderableHtml, plainTextFromHtml } from '../../shared/html-utils';
 
 // Types
 interface DragItem {
@@ -418,7 +419,7 @@ function DragDropFormModal({
   };
 
   const handleSubmit = async () => {
-    if (!formData.pertanyaan) {
+    if (!hasRenderableHtml(formData.pertanyaan)) {
       toast({ title: 'Pertanyaan harus diisi', status: 'warning' });
       return;
     }
@@ -540,11 +541,11 @@ function DragDropFormModal({
             {/* Pertanyaan */}
             <FormControl isRequired>
               <FormLabel>Pertanyaan</FormLabel>
-              <Textarea
+              <RichTextEditor
                 value={formData.pertanyaan}
-                onChange={(e) => setFormData(prev => ({ ...prev, pertanyaan: e.target.value }))}
+                onChange={(value) => setFormData(prev => ({ ...prev, pertanyaan: value }))}
                 placeholder="Masukkan pertanyaan..."
-                rows={3}
+                minHeight={140}
               />
             </FormControl>
 
@@ -861,11 +862,11 @@ function DragDropFormModal({
             {/* Pembahasan */}
             <FormControl>
               <FormLabel>Pembahasan (Opsional)</FormLabel>
-              <Textarea
+              <RichTextEditor
                 value={formData.pembahasan || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, pembahasan: e.target.value }))}
+                onChange={(value) => setFormData(prev => ({ ...prev, pembahasan: value }))}
                 placeholder="Masukkan pembahasan..."
-                rows={2}
+                minHeight={100}
               />
             </FormControl>
           </VStack>
@@ -1009,7 +1010,7 @@ export default function DragDropQuestionsTab({ topics }: { topics: Topic[] }) {
                       </HStack>
                     </HStack>
                     
-                    <Text fontWeight="medium" noOfLines={2}>{q.pertanyaan}</Text>
+                    <Text fontWeight="medium" noOfLines={2}>{plainTextFromHtml(q.pertanyaan || '')}</Text>
                     
                     <Wrap>
                       {q.items?.slice(0, 4).map((item, i) => (

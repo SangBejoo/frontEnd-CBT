@@ -11,7 +11,7 @@ export default function StudentHome() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && (!user || user.role !== 'SISWA')) {
+    if (!isLoading && (!user || user.role !== 'USER')) {
       router.push('/login');
     }
   }, [user, isLoading, router]);
@@ -35,7 +35,7 @@ export default function StudentHome() {
     );
   }
 
-  if (!user || user.role !== 'SISWA') {
+  if (!user || user.role !== 'USER') {
     return null; // Will redirect
   }
 
@@ -77,13 +77,13 @@ export default function StudentHome() {
               mb={4}
               fontWeight="800"
             >
-              Portal Siswa CBT
+              Portal User CBT
             </Heading>
             <Text fontSize="xl" color="gray.700" maxW="2xl" mx="auto" mb={2} fontWeight="500">
               Selamat datang, <span style={{ color: '#FF6B35', fontWeight: 'bold' }}>{user.nama}</span>!
             </Text>
             <Text fontSize="lg" color="gray.600">
-              Sistem Computer-Based Test - Pilih menu di bawah untuk memulai pembelajaran Anda.
+              Sistem Computer-Based Test - Pilih menu di bawah untuk memulai tes Anda.
             </Text>
           </Box>
 

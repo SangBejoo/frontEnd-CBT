@@ -40,6 +40,8 @@ interface Topic {
   mataPelajaran: { id: number; nama: string };
   tingkat: { id: number; nama: string };
   nama: string;
+  parentId?: number | null;
+  sequenceOrder?: number;
   isActive?: boolean;
   defaultDurasiMenit?: number;
   defaultJumlahSoal?: number;
@@ -178,6 +180,7 @@ export default function SessionsPage() {
 
         const payload = {
           nama_peserta: user.nama,
+          id_materi: selectedTopic.id,
           id_tingkat: selectedTopic.tingkat.id,
           id_mata_pelajaran: selectedTopic.mataPelajaran.id,
           durasi_menit: durasiMenit,

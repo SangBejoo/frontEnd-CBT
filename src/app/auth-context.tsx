@@ -7,7 +7,7 @@ interface User {
   id: number;
   email: string;
   nama: string;
-  role: 'SISWA' | 'ADMIN';
+  role: 'USER' | 'ADMIN';
   isActive: boolean;
 }
 
@@ -62,7 +62,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           const processedUser = {
             ...parsedUser,
             role: typeof parsedUser.role === 'number' 
-              ? (parsedUser.role === 1 ? 'SISWA' : parsedUser.role === 2 ? 'ADMIN' : 'SISWA')
+              ? (parsedUser.role === 1 ? 'USER' : parsedUser.role === 2 ? 'ADMIN' : 'USER')
               : parsedUser.role
           };
           setUser(processedUser);
@@ -104,7 +104,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const processedUserData: User = {
         ...userData,
         role: typeof userData.role === 'number' 
-          ? (userData.role === 1 ? 'SISWA' : userData.role === 2 ? 'ADMIN' : 'SISWA')
+          ? (userData.role === 1 ? 'USER' : userData.role === 2 ? 'ADMIN' : 'USER')
           : userData.role
       };
 

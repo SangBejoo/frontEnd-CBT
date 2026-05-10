@@ -67,7 +67,7 @@ export default React.memo(function UsersTab() {
 
   // Create form
   const createForm = useForm({
-    initialValues: { email: '', password: '', nama: '', role: 'SISWA' },
+    initialValues: { email: '', password: '', nama: '', role: 'USER' },
     onSubmit: async (values) => {
       await createUser(values as CreateUserData);
       onCreateClose();
@@ -81,7 +81,7 @@ export default React.memo(function UsersTab() {
       id: 0,
       email: '',
       nama: '',
-      role: 'SISWA',
+      role: 'USER',
       isActive: true,
     },
     onSubmit: async (values) => {
@@ -152,7 +152,7 @@ export default React.memo(function UsersTab() {
   );
 
   const getRoleColor = (role: string) => {
-    return role === 'SISWA' ? 'blue' : role === 'ADMIN' ? 'red' : 'gray';
+    return role === 'USER' ? 'blue' : role === 'ADMIN' ? 'red' : 'gray';
   };
 
   const getRoleLabel = (role: string) => {
@@ -348,8 +348,8 @@ export default React.memo(function UsersTab() {
                   value={createForm.values.role}
                   onChange={createForm.handleChange}
                 >
-                  <option value="SISWA">Siswa</option>
-                  <option value="ADMIN">Admin</option>
+            <option value="USER">User</option>
+            <option value="ADMIN">Admin</option>
                 </Select>
               </FormControl>
             </VStack>
@@ -410,7 +410,7 @@ export default React.memo(function UsersTab() {
                   value={editForm.values.role}
                   onChange={editForm.handleChange}
                 >
-                  <option value="SISWA">Siswa</option>
+                  <option value="USER">User</option>
                   <option value="ADMIN">Admin</option>
                 </Select>
               </FormControl>

@@ -16,6 +16,8 @@ export interface Topic extends BaseEntity {
   mataPelajaran: { id: number; nama: string };
   tingkat: { id: number; nama: string };
   nama: string;
+  parentId?: number | null;
+  sequenceOrder?: number;
   isActive?: boolean;
   defaultDurasiMenit?: number;
   defaultJumlahSoal?: number;
@@ -30,11 +32,15 @@ export interface Question extends BaseEntity {
     nama: string;
   };
   pertanyaan: string;
-  opsiA: string;
-  opsiB: string;
-  opsiC: string;
-  opsiD: string;
-  jawabanBenar: string;
+  questionType?: string;
+  options?: string[];
+  correctOptionIndices?: number[];
+  correctOptionIndex?: number;
+  opsiA?: string;
+  opsiB?: string;
+  opsiC?: string;
+  opsiD?: string;
+  jawabanBenar?: string;
   pembahasan?: string;
   gambar: {
     id: number;

@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   Container,
+  Checkbox,
   IconButton,
   useDisclosure,
   Modal,
@@ -19,7 +20,6 @@ import {
   FormLabel,
   Input,
   Select,
-  Textarea,
   useToast,
   HStack,
   VStack,
@@ -38,17 +38,205 @@ import {
   Flex,
 } from '@chakra-ui/react';
 import { EditIcon, DeleteIcon, AddIcon, ChevronUpIcon, ChevronDownIcon } from '@chakra-ui/icons';
-import { Topic } from '../types';
+import { Question, Topic } from '../types';
 import { useQuestions } from '../hooks';
+import RichTextEditor from './RichTextEditor';
+import { hasRenderableHtml, plainTextFromHtml } from '../../shared/html-utils';
 
-const mapLetterToEnum = (val: string) => {
-  switch ((val || '').trim().toUpperCase()) {
-    case 'A': return 'A';
-    case 'B': return 'B';
-    case 'C': return 'C';
-    case 'D': return 'D';
-    default: return 'JAWABAN_INVALID';
+const QUESTION_TYPE_SINGLE = 'multiple_choice';
+const QUESTION_TYPE_COMPLEX = 'multiple_choice_complex';
+
+const normalizeIndices = (indices: Array<number | string | null | undefined> = []) => {
+  const seen = new Set<number>();
+  const result: number[] = [];
+
+  for (const raw of indices) {
+    const value = typeof raw === 'string' ? Number(raw) : raw;
+    if (!Number.isFinite(value) || value === null || value === undefined) {
+      continue;
+    }
+    const index = Math.trunc(Number(value));
+    if (index <= 0 || seen.has(index)) {
+      continue;
+    }
+    seen.add(index);
+    result.push(index);
   }
+
+  result.sort((a, b) => a - b);
+  return result;
+};
+
+const extractQuestionOptions = (question: any): string[] => {
+  const dynamicOptions = Array.isArray(question?.options) && question.options.length > 0
+    ? question.options
+    : Array.isArray(question?.mcOptions) && question.mcOptions.length > 0
+      ? question.mcOptions
+      : null;
+
+  if (dynamicOptions) {
+    return dynamicOptions
+      .map((option: unknown) => (typeof option === 'string' ? option.trim() : String(option ?? '').trim()))
+      .filter(Boolean);
+  }
+
+  const legacy = [
+    question?.opsiA || question?.mcOpsiA,
+    question?.opsiB || question?.mcOpsiB,
+    question?.opsiC || question?.mcOpsiC,
+    question?.opsiD || question?.mcOpsiD,
+  ];
+
+  return legacy
+    .map((option) => (typeof option === 'string' ? option.trim() : String(option ?? '').trim()))
+    .filter(Boolean);
+};
+
+const extractQuestionCorrectIndices = (question: any, optionsLength = 0): number[] => {
+  const dynamicIndices = Array.isArray(question?.correctOptionIndices) && question.correctOptionIndices.length > 0
+    ? question.correctOptionIndices
+    : Array.isArray(question?.mcSelectedOptionIndices) && question.mcSelectedOptionIndices.length > 0
+      ? question.mcSelectedOptionIndices
+      : Array.isArray(question?.selectedOptionIndices) && question.selectedOptionIndices.length > 0
+        ? question.selectedOptionIndices
+        : null;
+
+  if (dynamicIndices) {
+    return normalizeIndices(dynamicIndices);
+  }
+
+  const dynamicIndex = question?.correctOptionIndex ?? question?.mcSelectedOptionIndex ?? question?.selectedOptionIndex;
+  if (typeof dynamicIndex === 'number' && dynamicIndex > 0) {
+    return [Math.trunc(dynamicIndex)];
+  }
+
+  const legacyValue = String(question?.jawabanBenar || question?.mcJawabanDipilih || '').trim().toUpperCase();
+  const legacyMap: Record<string, number> = { A: 1, B: 2, C: 3, D: 4 };
+  if (legacyMap[legacyValue]) {
+    return [legacyMap[legacyValue]];
+  }
+
+  const numericLegacy = Number(legacyValue);
+  if (Number.isFinite(numericLegacy) && numericLegacy > 0) {
+    return [Math.trunc(numericLegacy)];
+  }
+
+  if (optionsLength > 0) {
+    return [1];
+  }
+
+  return [];
+};
+
+const normalizeQuestionType = (value: unknown, optionsLength = 0, correctCount = 0) => {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized.includes('drag')) {
+    return 'drag_drop';
+  }
+  if (normalized.includes('complex') || optionsLength > 4 || correctCount > 1) {
+    return QUESTION_TYPE_COMPLEX;
+  }
+  return QUESTION_TYPE_SINGLE;
+};
+
+const splitCsvLine = (line: string) => {
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        current += '"';
+        index += 1;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      cells.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current);
+  return cells;
+};
+
+const parseCsvText = (csvText: string) => {
+  const normalizedText = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!normalizedText) {
+    return [];
+  }
+
+  const lines = normalizedText.split('\n').filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const headers = splitCsvLine(lines[0]).map((header) => header.trim());
+
+  return lines.slice(1).map((line) => {
+    const values = splitCsvLine(line);
+    const row: Record<string, string> = {};
+
+    headers.forEach((header, index) => {
+      row[header] = (values[index] ?? '').trim();
+    });
+
+    return row;
+  });
+};
+
+const escapeCsvCell = (value: string) => {
+  const normalized = String(value ?? '').replace(/"/g, '""');
+  return /[",\n\r]/.test(normalized) ? `"${normalized}"` : normalized;
+};
+
+const buildQuestionTemplateCsv = () => {
+  const headers = [
+    'id_materi',
+    'id_tingkat',
+    'pertanyaan',
+    'question_type',
+    'options_json',
+    'correct_option_indices_json',
+    'pembahasan',
+  ];
+
+  const rows = [
+    [
+      1,
+      1,
+      '<p>Contoh <strong>pertanyaan</strong> pilihan ganda</p>',
+      'multiple_choice',
+      '["<p>Opsi A</p>","<p>Opsi B</p>","<p>Opsi C</p>","<p>Opsi D</p>"]',
+      '[1]',
+      '<p>Tulis <em>pembahasan</em> di sini</p>',
+    ],
+    [
+      1,
+      1,
+      '<p>Contoh pertanyaan pilihan ganda kompleks</p>',
+      'multiple_choice_complex',
+      '["<p>Opsi 1</p>","<p>Opsi 2</p>","<p>Opsi 3</p>","<p>Opsi 4</p>","<p>Opsi 5</p>"]',
+      '[1,3,5]',
+      '<p>Contoh pembahasan untuk soal kompleks</p>',
+    ],
+  ];
+
+  return [
+    headers.join(','),
+    ...rows.map((row) => row.map((cell) => escapeCsvCell(String(cell))).join(',')),
+  ].join('\n');
 };
 
 // Materi Select tetap memoized
@@ -86,7 +274,7 @@ const QuestionFormModal = memo(({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  question: any;
+  question: Question | null;
   defaultMateri: Topic | null;
   topics: Topic[];
   onSubmit: (data: any, files: FileList | null) => Promise<void>;
@@ -94,11 +282,9 @@ const QuestionFormModal = memo(({
 }) => {
   const [formValues, setFormValues] = useState({
     pertanyaan: '',
-    opsiA: '',
-    opsiB: '',
-    opsiC: '',
-    opsiD: '',
-    jawabanBenar: 'A',
+    questionType: QUESTION_TYPE_SINGLE,
+    options: ['',''],
+    correctOptionIndices: [1],
     pembahasan: '',
     materi: null as Topic | null,
   });
@@ -109,49 +295,177 @@ const QuestionFormModal = memo(({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
+  const hydrateForm = useCallback((source: Question | null) => {
+    const sourceOptions = extractQuestionOptions(source);
+    const normalizedOptions = sourceOptions.length > 0 ? sourceOptions : ['', ''];
+    const normalizedCorrectIndices = normalizeIndices(
+      extractQuestionCorrectIndices(source, normalizedOptions.length)
+    );
+    const questionType = normalizeQuestionType(
+      source?.questionType,
+      normalizedOptions.length,
+      normalizedCorrectIndices.length
+    );
+
+    return {
+      pertanyaan: source?.pertanyaan || '',
+      questionType,
+      options: normalizedOptions,
+      correctOptionIndices: normalizedCorrectIndices.length > 0 ? normalizedCorrectIndices : [1],
+      pembahasan: source?.pembahasan || '',
+      materi: source?.materi || defaultMateri || null,
+    };
+  }, [defaultMateri]);
+
   useEffect(() => {
     if (isOpen) {
-      setFormValues({
-        pertanyaan: question?.pertanyaan || '',
-        opsiA: question?.opsiA || '',
-        opsiB: question?.opsiB || '',
-        opsiC: question?.opsiC || '',
-        opsiD: question?.opsiD || '',
-        jawabanBenar: question?.jawabanBenar || 'A',
-        pembahasan: question?.pembahasan || '',
-        materi: question?.materi || defaultMateri || null,
-      });
-      setLocalPertanyaan(question?.pertanyaan || '');
-      setLocalPembahasan(question?.pembahasan || '');
+      const hydrated = hydrateForm(question);
+      setFormValues(hydrated);
+      setLocalPertanyaan(hydrated.pertanyaan);
+      setLocalPembahasan(hydrated.pembahasan);
       setSelectedFiles(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [isOpen, question, defaultMateri]);
+  }, [isOpen, question, hydrateForm]);
 
   const deferredPertanyaan = useDeferredValue(localPertanyaan);
   const deferredPembahasan = useDeferredValue(localPembahasan);
 
   useEffect(() => {
-    setFormValues(prev => ({ ...prev, pertanyaan: deferredPertanyaan }));
+    setFormValues((prev) => ({ ...prev, pertanyaan: deferredPertanyaan }));
   }, [deferredPertanyaan]);
 
   useEffect(() => {
-    setFormValues(prev => ({ ...prev, pembahasan: deferredPembahasan }));
+    setFormValues((prev) => ({ ...prev, pembahasan: deferredPembahasan }));
   }, [deferredPembahasan]);
 
   const updateFormField = useCallback((field: string, value: any) => {
-    setFormValues(prev => ({ ...prev, [field]: value }));
+    setFormValues((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handleQuestionTypeChange = useCallback((nextType: string) => {
+    setFormValues((prev) => {
+      if (nextType === QUESTION_TYPE_SINGLE) {
+        const firstCorrect = prev.correctOptionIndices[0] || 1;
+        return {
+          ...prev,
+          questionType: nextType,
+          correctOptionIndices: [firstCorrect],
+        };
+      }
+
+      return {
+        ...prev,
+        questionType: nextType,
+      };
+    });
+  }, []);
+
+  const handleAddOption = useCallback(() => {
+    setFormValues((prev) => ({
+      ...prev,
+      options: [...prev.options, ''],
+    }));
+  }, []);
+
+  const handleRemoveOption = useCallback((index: number) => {
+    setFormValues((prev) => {
+      if (prev.options.length <= 2) {
+        return prev;
+      }
+
+      const nextOptions = prev.options.filter((_, optionIndex) => optionIndex !== index);
+      const removedIndex = index + 1;
+      const nextCorrect = normalizeIndices(
+        prev.correctOptionIndices
+          .filter((value) => value !== removedIndex)
+          .map((value) => (value > removedIndex ? value - 1 : value))
+      );
+      const fallbackCorrect = nextCorrect.length > 0 ? nextCorrect : [1];
+      const nextQuestionType = normalizeQuestionType(
+        prev.questionType,
+        nextOptions.filter((option) => option.trim().length > 0).length,
+        fallbackCorrect.length
+      );
+
+      return {
+        ...prev,
+        options: nextOptions,
+        correctOptionIndices: nextQuestionType === QUESTION_TYPE_SINGLE ? [fallbackCorrect[0]] : fallbackCorrect,
+        questionType: nextQuestionType,
+      };
+    });
+  }, []);
+
+  const handleOptionChange = useCallback((index: number, value: string) => {
+    setFormValues((prev) => {
+      const nextOptions = [...prev.options];
+      nextOptions[index] = value;
+      return {
+        ...prev,
+        options: nextOptions,
+      };
+    });
+  }, []);
+
+  const toggleCorrectOption = useCallback((index: number, checked: boolean) => {
+    setFormValues((prev) => {
+      const currentlySelected = prev.correctOptionIndices.includes(index);
+
+      if (prev.questionType === QUESTION_TYPE_SINGLE) {
+        if (checked) {
+          return {
+            ...prev,
+            correctOptionIndices: [index],
+          };
+        }
+
+        return {
+          ...prev,
+          correctOptionIndices: currentlySelected ? [] : prev.correctOptionIndices,
+        };
+      }
+
+      const nextCorrect = checked
+        ? normalizeIndices([...prev.correctOptionIndices, index])
+        : normalizeIndices(prev.correctOptionIndices.filter((value) => value !== index));
+
+      return {
+        ...prev,
+        questionType: normalizeQuestionType(prev.questionType, prev.options.length, nextCorrect.length),
+        correctOptionIndices: nextCorrect,
+      };
+    });
   }, []);
 
   const handleSubmit = async () => {
-    if (!formValues.pertanyaan || !formValues.opsiA || !formValues.opsiB || !formValues.opsiC || !formValues.opsiD || !formValues.materi?.id) {
+    const cleanOptions = formValues.options
+      .map((option) => (typeof option === 'string' ? option.trim() : String(option ?? '').trim()));
+    const cleanCorrectIndices = normalizeIndices(formValues.correctOptionIndices)
+      .filter((index) => index >= 1 && index <= cleanOptions.length);
+
+    if (
+      !hasRenderableHtml(formValues.pertanyaan) ||
+      cleanOptions.length < 2 ||
+      cleanOptions.some((option) => !hasRenderableHtml(option)) ||
+      !formValues.materi?.id ||
+      cleanCorrectIndices.length === 0
+    ) {
       toast({ title: 'Harap isi semua field', status: 'warning' });
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await onSubmit(formValues, selectedFiles);
+      await onSubmit(
+        {
+          ...formValues,
+          questionType: normalizeQuestionType(formValues.questionType, cleanOptions.length, cleanCorrectIndices.length),
+          options: cleanOptions,
+          correctOptionIndices: cleanCorrectIndices,
+        },
+        selectedFiles
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -187,37 +501,77 @@ const QuestionFormModal = memo(({
             </FormControl>
 
             <FormControl isRequired>
-              <FormLabel>Pertanyaan</FormLabel>
-              <Textarea
-                value={localPertanyaan}
-                onChange={(e) => setLocalPertanyaan(e.target.value)}
-                placeholder="Masukkan pertanyaan"
-                rows={3}
-              />
-            </FormControl>
-
-            <FormControl isRequired><FormLabel>Opsi A</FormLabel><Input value={formValues.opsiA} onChange={(e) => updateFormField('opsiA', e.target.value)} /></FormControl>
-            <FormControl isRequired><FormLabel>Opsi B</FormLabel><Input value={formValues.opsiB} onChange={(e) => updateFormField('opsiB', e.target.value)} /></FormControl>
-            <FormControl isRequired><FormLabel>Opsi C</FormLabel><Input value={formValues.opsiC} onChange={(e) => updateFormField('opsiC', e.target.value)} /></FormControl>
-            <FormControl isRequired><FormLabel>Opsi D</FormLabel><Input value={formValues.opsiD} onChange={(e) => updateFormField('opsiD', e.target.value)} /></FormControl>
-
-            <FormControl isRequired>
-              <FormLabel>Jawaban Benar</FormLabel>
-              <Select value={formValues.jawabanBenar} onChange={(e) => updateFormField('jawabanBenar', e.target.value)}>
-                <option value="A">A</option>
-                <option value="B">B</option>
-                <option value="C">C</option>
-                <option value="D">D</option>
+              <FormLabel>Jenis Soal</FormLabel>
+              <Select value={formValues.questionType} onChange={(e) => handleQuestionTypeChange(e.target.value)}>
+                <option value={QUESTION_TYPE_SINGLE}>Pilihan Ganda Satu Jawaban</option>
+                <option value={QUESTION_TYPE_COMPLEX}>Pilihan Ganda Kompleks</option>
               </Select>
             </FormControl>
 
+            <FormControl isRequired>
+              <FormLabel>Pertanyaan</FormLabel>
+              <RichTextEditor
+                value={localPertanyaan}
+                onChange={setLocalPertanyaan}
+                placeholder="Masukkan pertanyaan"
+                minHeight={140}
+              />
+            </FormControl>
+
+            <VStack spacing={3} align="stretch">
+              <HStack justify="space-between" align="center">
+                <FormLabel m={0}>Opsi Jawaban</FormLabel>
+                <Button size="sm" variant="outline" onClick={handleAddOption}>
+                  Tambah Opsi
+                </Button>
+              </HStack>
+
+              {formValues.options.map((option, index) => {
+                const optionNumber = index + 1;
+                const isCorrect = formValues.correctOptionIndices.includes(optionNumber);
+
+                return (
+                  <Box key={`${index}-${optionNumber}`} p={3} borderWidth="1px" borderRadius="md" borderColor="gray.200" bg="gray.50">
+                    <HStack align="start" spacing={3}>
+                      <FormControl isRequired flex={1}>
+                        <FormLabel>Opsi {optionNumber}</FormLabel>
+                        <RichTextEditor
+                          value={option}
+                          onChange={(value) => handleOptionChange(index, value)}
+                          placeholder={`Masukkan opsi ${optionNumber}`}
+                          minHeight={96}
+                        />
+                      </FormControl>
+                      <Checkbox
+                        mt={8}
+                        isChecked={isCorrect}
+                        onChange={(e) => toggleCorrectOption(optionNumber, e.target.checked)}
+                      >
+                        Benar
+                      </Checkbox>
+                      <IconButton
+                        aria-label={`Hapus opsi ${optionNumber}`}
+                        icon={<DeleteIcon />}
+                        size="sm"
+                        variant="ghost"
+                        colorScheme="red"
+                        mt={7}
+                        onClick={() => handleRemoveOption(index)}
+                        isDisabled={formValues.options.length <= 2}
+                      />
+                    </HStack>
+                  </Box>
+                );
+              })}
+            </VStack>
+
             <FormControl>
               <FormLabel>Pembahasan (Opsional)</FormLabel>
-              <Textarea
+              <RichTextEditor
                 value={localPembahasan}
-                onChange={(e) => setLocalPembahasan(e.target.value)}
+                onChange={setLocalPembahasan}
                 placeholder="Masukkan pembahasan"
-                rows={3}
+                minHeight={120}
               />
             </FormControl>
 
@@ -232,19 +586,18 @@ const QuestionFormModal = memo(({
                 <Heading size="sm">Gambar yang Ada</Heading>
                 <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
                   {question.gambar.map((img: any) => (
-                    <Box 
-                      key={img.id} 
-                      p={3} 
-                      border="1px solid" 
-                      borderColor="gray.200" 
+                    <Box
+                      key={img.id}
+                      p={3}
+                      border="1px solid"
+                      borderColor="gray.200"
                       borderRadius="md"
                       bg="gray.50"
                     >
-                      {/* Image Preview */}
                       {img.filePath && (
                         <Box mb={2} borderRadius="md" overflow="hidden" bg="white">
-                          <img 
-                            src={img.filePath} 
+                          <img
+                            src={img.filePath}
                             alt={img.namaFile || 'Gambar soal'}
                             style={{ width: '100%', maxHeight: '150px', objectFit: 'contain' }}
                           />
@@ -289,14 +642,19 @@ export default function QuestionsTab() {
     deleteQuestion,
     uploadImage,
     deleteImage,
+    bulkCreateQuestions,
+    downloadQuestionTemplate,
   } = useQuestions();
 
   const { isOpen: isQuestionOpen, onOpen: onQuestionOpen, onClose: onQuestionClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
 
-  const [currentQuestion, setCurrentQuestion] = useState<any>({});
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [currentDeleteId, setCurrentDeleteId] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   // State untuk single open level
   const [openLevelName, setOpenLevelName] = useState<string | null>(null);
@@ -367,7 +725,7 @@ export default function QuestionsTab() {
           if (subjectName.toLowerCase().includes(lowerSearch)) return true;
           for (const [topicName, topicQuestions] of Object.entries(topics)) {
             if (topicName.toLowerCase().includes(lowerSearch)) return true;
-            if (topicQuestions.some((q: any) => q.pertanyaan?.toLowerCase().includes(lowerSearch))) return true;
+            if (topicQuestions.some((q: any) => plainTextFromHtml(q.pertanyaan || '').toLowerCase().includes(lowerSearch))) return true;
           }
         }
         return false;
@@ -407,7 +765,7 @@ export default function QuestionsTab() {
   // Handler buka modal tambah soal dengan context
   const handleOpenNewQuestion = useCallback((context?: { level?: string; subject?: string; topic?: string }) => {
     setAddContext(context || null);
-    setCurrentQuestion({});
+    setCurrentQuestion(null);
     onQuestionOpen();
   }, [onQuestionOpen]);
 
@@ -456,15 +814,26 @@ export default function QuestionsTab() {
         );
       }
 
+      const options = Array.isArray(formValues.options)
+        ? formValues.options
+            .map((option: unknown) => (typeof option === 'string' ? option.trim() : String(option ?? '').trim()))
+            .filter((option: string) => option.length > 0)
+        : [];
+      const correctOptionIndices = normalizeIndices(formValues.correctOptionIndices || [])
+        .filter((index) => index >= 1 && index <= options.length);
+      const resolvedQuestionType = normalizeQuestionType(
+        formValues.questionType,
+        options.length,
+        correctOptionIndices.length
+      );
+
       const questionData = {
         idMateri: formValues.materi.id,
         idTingkat: formValues.materi.tingkat.id,
         pertanyaan: formValues.pertanyaan,
-        opsiA: formValues.opsiA,
-        opsiB: formValues.opsiB,
-        opsiC: formValues.opsiC,
-        opsiD: formValues.opsiD,
-        jawabanBenar: formValues.jawabanBenar === 'A' ? 1 : formValues.jawabanBenar === 'B' ? 2 : formValues.jawabanBenar === 'C' ? 3 : 4,
+        questionType: resolvedQuestionType === QUESTION_TYPE_COMPLEX ? 'MULTIPLE_CHOICE_COMPLEX' : 'MULTIPLE_CHOICE',
+        options,
+        correctOptionIndices,
         pembahasan: formValues.pembahasan,
         imageBytes: imageBytes,
       } as any;
@@ -499,10 +868,15 @@ export default function QuestionsTab() {
         await deleteImage(currentQuestion.id, imageId);
         toast({ title: 'Gambar dihapus', status: 'success' });
         // Update current question to reflect image deletion
-        setCurrentQuestion((prev: any) => ({
-          ...prev,
-          gambar: prev.gambar.filter((img: any) => img.id !== imageId)
-        }));
+        setCurrentQuestion((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          return {
+            ...prev,
+            gambar: prev.gambar.filter((img: any) => img.id !== imageId),
+          };
+        });
       }
     } catch (error) {
       toast({ title: 'Error menghapus gambar', status: 'error' });
@@ -510,23 +884,165 @@ export default function QuestionsTab() {
     }
   }, [currentQuestion?.id, deleteImage, toast]);
 
+  const handleDownloadTemplate = useCallback(async () => {
+    setIsDownloadingTemplate(true);
+    try {
+      const templateResponse = await downloadQuestionTemplate();
+      const responseData = templateResponse && typeof templateResponse === 'object' ? templateResponse : null;
+      const backendCsvContent =
+        typeof templateResponse === 'string'
+          ? templateResponse
+          : responseData?.csvContent || responseData?.csv_content || responseData?.content || '';
+      const filename = responseData?.filename || responseData?.fileName || 'soal_bulk_import_template.csv';
+      const usedFallback = !backendCsvContent;
+      const contentType = usedFallback
+        ? 'text/csv;charset=utf-8'
+        : responseData?.contentType || responseData?.content_type || 'text/csv;charset=utf-8';
+      const csvContent = backendCsvContent || buildQuestionTemplateCsv();
+
+      const blob = new Blob([csvContent], { type: contentType });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      toast({
+        title: usedFallback ? 'Template CSV bawaan diunduh' : 'Template CSV diunduh',
+        status: 'success',
+      });
+    } catch {
+      toast({ title: 'Gagal mengunduh template CSV', status: 'error' });
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  }, [downloadQuestionTemplate, toast]);
+
+  const handleImportCsvClick = useCallback(() => {
+    importFileInputRef.current?.click();
+  }, []);
+
+  const parseArrayCell = (value: string | undefined) => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return trimmed
+        .split('|')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    }
+  };
+
+  const handleCsvImport = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    setIsImportingCsv(true);
+    try {
+      const csvText = await file.text();
+      const rows = parseCsvText(csvText);
+
+      if (rows.length === 0) {
+        toast({ title: 'CSV kosong atau tidak valid', status: 'warning' });
+        return;
+      }
+
+      const items = rows
+        .map((row, index) => {
+          const rawOptions = parseArrayCell(row.options_json || row.options || row.optionsJson);
+          const legacyOptions = rawOptions.length > 0
+            ? rawOptions
+            : [
+                row.opsi_a || row.opsiA,
+                row.opsi_b || row.opsiB,
+                row.opsi_c || row.opsiC,
+                row.opsi_d || row.opsiD,
+              ].filter(Boolean);
+
+          const options = legacyOptions
+            .map((option) => (typeof option === 'string' ? option.trim() : String(option ?? '').trim()))
+            .filter((option) => option.length > 0);
+
+          const parsedCorrectIndices = parseArrayCell(
+            row.correct_option_indices_json || row.correctOptionIndicesJson || row.correctOptionIndices
+          )
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0);
+
+          const correctOptionIndices = normalizeIndices(parsedCorrectIndices.length > 0 ? parsedCorrectIndices : [Number(row.jawaban_benar || row.jawabanBenar || 1)]);
+          const questionType = normalizeQuestionType(
+            row.question_type || row.questionType,
+            options.length,
+            correctOptionIndices.length
+          );
+
+          return {
+            idMateri: Number(row.id_materi || row.idMateri || 0),
+            idTingkat: Number(row.id_tingkat || row.idTingkat || 0),
+            pertanyaan: row.pertanyaan || row.question || '',
+            questionType: questionType === QUESTION_TYPE_COMPLEX ? 'MULTIPLE_CHOICE_COMPLEX' : 'MULTIPLE_CHOICE',
+            options,
+            correctOptionIndices,
+            pembahasan: row.pembahasan || '',
+            rowNumber: index + 1,
+          };
+        })
+        .filter((item) => item.idMateri > 0 && item.idTingkat > 0 && item.pertanyaan && item.options.length >= 2 && item.correctOptionIndices.length > 0);
+
+      if (items.length === 0) {
+        toast({ title: 'Tidak ada baris valid untuk diimport', status: 'warning' });
+        return;
+      }
+
+      await bulkCreateQuestions(items);
+      toast({ title: `${items.length} soal berhasil dikirim untuk bulk import`, status: 'success' });
+    } catch {
+      toast({ title: 'Gagal import CSV', status: 'error' });
+    } finally {
+      setIsImportingCsv(false);
+    }
+  }, [bulkCreateQuestions, toast]);
+
   const renderQuestionCard = useCallback((question: any) => (
     <Card key={question.id} size="sm" mb={3}>
       <CardBody p={4}>
         <Flex direction={{ base: 'column', md: 'row' }} gap={4}>
           <Box flex={1}>
             <Text fontWeight="medium" mb={2} noOfLines={2}>
-              {question.pertanyaan}
+              {plainTextFromHtml(question.pertanyaan || '')}
             </Text>
             <HStack spacing={2} mb={2}>
-              <Badge colorScheme="green" size="sm">Jawaban: {question.jawabanBenar}</Badge>
+              <Badge colorScheme="green" size="sm">
+                Jawaban: {normalizeIndices(extractQuestionCorrectIndices(question, extractQuestionOptions(question).length)).join(', ') || '-'}
+              </Badge>
+              <Badge colorScheme="blue" size="sm">
+                {normalizeQuestionType(question.questionType, extractQuestionOptions(question).length, extractQuestionCorrectIndices(question, extractQuestionOptions(question).length).length) === QUESTION_TYPE_COMPLEX
+                  ? 'Pilihan Ganda Kompleks'
+                  : 'Pilihan Ganda'}
+              </Badge>
+              <Badge colorScheme="orange" size="sm">
+                {extractQuestionOptions(question).length} opsi
+              </Badge>
               {question.gambar && question.gambar.length > 0 && (
                 <Badge colorScheme="purple" size="sm">{question.gambar.length} gambar</Badge>
               )}
             </HStack>
             {question.pembahasan && (
               <Text fontSize="sm" color="gray.600" noOfLines={1}>
-                Pembahasan: {question.pembahasan}
+                Pembahasan: {plainTextFromHtml(question.pembahasan || '')}
               </Text>
             )}
           </Box>
@@ -567,11 +1083,37 @@ export default function QuestionsTab() {
         <Box>
           <HStack justify="space-between" align="center" mb={4}>
             <Text fontWeight="bold" color="gray.700">Total Soal: {questions.length}</Text>
-            <Button colorScheme="blue" leftIcon={<AddIcon />} onClick={() => handleOpenNewQuestion()}>
-              Tambah Soal
-            </Button>
+            <HStack spacing={2}>
+              <Button
+                variant="outline"
+                colorScheme="blue"
+                onClick={handleDownloadTemplate}
+                isLoading={isDownloadingTemplate}
+              >
+                Download Template CSV
+              </Button>
+              <Button
+                variant="outline"
+                colorScheme="green"
+                onClick={handleImportCsvClick}
+                isLoading={isImportingCsv}
+              >
+                Import CSV
+              </Button>
+              <Button colorScheme="blue" leftIcon={<AddIcon />} onClick={() => handleOpenNewQuestion()}>
+                Tambah Soal
+              </Button>
+            </HStack>
           </HStack>
         </Box>
+
+        <Input
+          ref={importFileInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          display="none"
+          onChange={handleCsvImport}
+        />
 
         <HStack spacing={4} mb={4}>
           <FormControl>

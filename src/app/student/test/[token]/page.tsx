@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   Box,
   Button,
+  Checkbox,
+  CheckboxGroup,
   RadioGroup,
   Radio,
   VStack,
@@ -39,6 +41,17 @@ import { DndContext, DragEndEvent, closestCenter, PointerSensor, useSensor, useS
 import { SortableContext, arrayMove, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import DragDropQuestion from '../../components/DragDropQuestion';
+import {
+  getOptionLabel,
+  getQuestionOptions,
+  getQuestionSelectedIndices,
+  getQuestionType,
+  normalizeIndices,
+  QUESTION_TYPE_DRAG_DROP,
+  QUESTION_TYPE_MULTIPLE_CHOICE,
+  QUESTION_TYPE_MULTIPLE_CHOICE_COMPLEX,
+} from '../../../shared/question-utils';
+import { sanitizeHtml } from '../../../shared/html-utils';
 
 interface Question {
   id: number;
@@ -57,11 +70,12 @@ interface Question {
   // Multiple Choice fields
   mcId?: number;
   mcPertanyaan?: string;
-  mcOpsiA?: string;
-  mcOpsiB?: string;
-  mcOpsiC?: string;
-  mcOpsiD?: string;
-  mcJawabanDipilih?: string;
+  mcOptions?: string[];
+  mcSelectedOptionIndices?: number[];
+  options?: string[];
+  selectedOptionIndices?: number[];
+  jawabanDipilih?: string | null;
+  mcJawabanDipilih?: string | null;
   mcGambar?: Array<{
     id: number;
     namaFile: string;
@@ -91,11 +105,6 @@ interface Question {
   ddUserAnswer?: Record<number, number>;
   // Legacy fields for backward compatibility
   pertanyaan?: string;
-  opsiA?: string;
-  opsiB?: string;
-  opsiC?: string;
-  opsiD?: string;
-  jawabanDipilih?: string;
   gambar?: Array<{
     id: number;
     namaFile: string;
@@ -133,7 +142,7 @@ export default function TestPage() {
   const { isLoading: isAuthLoading } = useAuth();
 
   const [sessionData, setSessionData] = useState<TestSessionData | null>(null);
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [answers, setAnswers] = useState<Record<number, number[]>>({});
   const [dragDropAnswers, setDragDropAnswers] = useState<Record<number, number[]>>({});  // questionId -> ordered item IDs (for ORDERING) - LEGACY
   const [orderingMaps, setOrderingMaps] = useState<Record<number, Record<number, number>>>({}); // questionId -> {itemId: slotId} - NEW: Direct map for ORDERING
   const [matchingAnswers, setMatchingAnswers] = useState<Record<number, Record<number, number[]>>>({}); // questionId -> { slotId: itemId[] } (for MATCHING)
@@ -155,6 +164,65 @@ export default function TestPage() {
     })
   );
 
+  const normalizeAnswerSelection = (value: unknown): number[] => {
+    if (Array.isArray(value)) {
+      return normalizeIndices(value);
+    }
+
+    if (value === null || value === undefined) {
+      return [];
+    }
+
+    if (typeof value === 'number') {
+      return normalizeIndices([value]);
+    }
+
+    const raw = String(value).trim();
+    if (!raw) {
+      return [];
+    }
+
+    return normalizeIndices(
+      raw
+        .split(',')
+        .map((entry) => entry.trim())
+        .map((entry) => {
+          const upper = entry.toUpperCase();
+          if (upper.length === 1 && upper >= 'A' && upper <= 'Z') {
+            return upper.charCodeAt(0) - 64;
+          }
+
+          const numeric = Number(entry);
+          return Number.isFinite(numeric) ? numeric : 0;
+        })
+        .filter((entry) => entry > 0)
+    );
+  };
+
+  const normalizeSavedAnswers = (value: Record<string, unknown> | null | undefined) => {
+    const result: Record<number, number[]> = {};
+    if (!value) {
+      return result;
+    }
+
+    Object.entries(value).forEach(([key, raw]) => {
+      const questionId = Number(key);
+      if (!Number.isFinite(questionId)) {
+        return;
+      }
+
+      const normalized = normalizeAnswerSelection(raw);
+      if (normalized.length > 0) {
+        result[questionId] = normalized;
+      }
+    });
+
+    return result;
+  };
+
+  const countAnsweredQuestions = (value: Record<number, number[]>) =>
+    Object.values(value).filter((selection) => Array.isArray(selection) && selection.length > 0).length;
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -167,7 +235,7 @@ export default function TestPage() {
         try {
           const parsed = JSON.parse(savedState);
           setCurrentQuestionIndex(parsed.currentQuestionIndex || 0);
-          setAnswers(parsed.answers || {});
+          setAnswers(normalizeSavedAnswers(parsed.answers || {}));
         } catch (error) {
           console.error('Error loading saved state:', error);
         }
@@ -434,13 +502,13 @@ export default function TestPage() {
       
       // Load saved state from localStorage first
       const savedState = localStorage.getItem(`test_session_${token}`);
-      let savedAnswers: Record<number, string> = {};
+      let savedAnswers: Record<number, number[]> = {};
       let savedIndex = 0;
       
       if (savedState) {
         try {
           const parsed = JSON.parse(savedState);
-          savedAnswers = parsed.answers || {};
+          savedAnswers = normalizeSavedAnswers(parsed.answers || {});
           savedIndex = parsed.currentQuestionIndex || 0;
         } catch (e) {
           console.error('Error parsing saved state:', e);
@@ -448,10 +516,17 @@ export default function TestPage() {
       }
       
       // Merge server answers with saved answers (prefer saved answers)
-      const mergedAnswers: Record<number, string> = { ...savedAnswers };
+      const mergedAnswers: Record<number, number[]> = { ...savedAnswers };
       transformedData.soal.forEach((q: Question) => {
-        if (q.jawabanDipilih && q.jawabanDipilih !== 'JAWABAN_INVALID' && !mergedAnswers[q.nomorUrut]) {
-          mergedAnswers[q.nomorUrut] = q.jawabanDipilih;
+        const serverSelection = normalizeAnswerSelection(
+          q.mcSelectedOptionIndices ||
+          q.selectedOptionIndices ||
+          q.jawabanDipilih ||
+          q.mcJawabanDipilih
+        );
+
+        if (serverSelection.length > 0 && !mergedAnswers[q.nomorUrut]) {
+          mergedAnswers[q.nomorUrut] = serverSelection;
         }
       });
       
@@ -471,8 +546,14 @@ export default function TestPage() {
     }
   };
 
-  const handleAnswerChange = async (questionId: number, answer: string) => {
-    setAnswers({ ...answers, [questionId]: answer });
+  const handleAnswerChange = async (questionId: number, selectedIndices: number[]) => {
+    const normalized = normalizeIndices(selectedIndices);
+    if (normalized.length === 0) {
+      return;
+    }
+
+    const nextAnswers = { ...answers, [questionId]: normalized };
+    setAnswers(nextAnswers);
     // Submit answer immediately without refetching all
     try {
       // Ensure auth token is set before making request
@@ -483,13 +564,13 @@ export default function TestPage() {
       
       await axios.post(`${API_BASE}/${token}/answers`, {
         nomor_urut: questionId,
-        jawaban_dipilih: answer,
+        selected_option_indices: normalized,
       });
       // Update dijawab_count locally
       if (sessionData) {
         setSessionData({
           ...sessionData,
-          dijawab_count: Object.keys({ ...answers, [questionId]: answer }).length,
+          dijawab_count: countAnsweredQuestions(nextAnswers),
         });
       }
     } catch (error) {
@@ -659,10 +740,10 @@ export default function TestPage() {
     const question = sessionData.soal[index];
     
     // Check multiple choice answer
-    if (answers[nomorUrut]) return 'answered';
+    if (Array.isArray(answers[nomorUrut]) && answers[nomorUrut].length > 0) return 'answered';
     
     // Check drag-drop answers
-    if (question.questionType === 'QUESTION_TYPE_DRAG_DROP' || question.ddPertanyaan) {
+    if (question.questionType === QUESTION_TYPE_DRAG_DROP || question.ddPertanyaan) {
       if (question.ddDragType === 'MATCHING' || question.ddDragType === 'matching') {
         // Check if any items are placed in slots
         if (matchingAnswers[nomorUrut] && Object.keys(matchingAnswers[nomorUrut]).length > 0) {
@@ -679,44 +760,44 @@ export default function TestPage() {
     return 'unanswered';
   };
 
-  const handleClearAnswer = async () => {
+  const handleClearAnswer = async (question: Question | null = currentQuestion) => {
+    if (!question) {
+      return;
+    }
+
     try {
       await axios.post(`${API_BASE}/${token}/clear-answer`, {
-        nomor_urut: currentQuestion.nomorUrut,
+        nomor_urut: question.nomorUrut,
       });
       
       // Clear based on question type
-      if (currentQuestion.questionType === 'QUESTION_TYPE_DRAG_DROP' || currentQuestion.ddPertanyaan) {
+      if (question.questionType === QUESTION_TYPE_DRAG_DROP || question.ddPertanyaan) {
         // For drag-drop questions
-        if (currentQuestion.ddDragType === 'MATCHING' || currentQuestion.ddDragType === 'matching') {
+        if (question.ddDragType === 'MATCHING' || question.ddDragType === 'matching') {
           // Clear matching answers
           const newMatchingAnswers = { ...matchingAnswers };
-          delete newMatchingAnswers[currentQuestion.nomorUrut];
+          delete newMatchingAnswers[question.nomorUrut];
           setMatchingAnswers(newMatchingAnswers);
         } else {
           // Clear ordering answers (using orderingMaps)
           const newOrderingMaps = { ...orderingMaps };
-          delete newOrderingMaps[currentQuestion.nomorUrut];
+          delete newOrderingMaps[question.nomorUrut];
           setOrderingMaps(newOrderingMaps);
         }
       } else {
         // Clear multiple choice answer
         const newAnswers = { ...answers };
-        delete newAnswers[currentQuestion.nomorUrut];
+        delete newAnswers[question.nomorUrut];
         setAnswers(newAnswers);
       }
       
       // Update dijawab_count locally
       if (sessionData) {
-        let newCount = 0;
-        Object.keys(answers).forEach(key => {
-          if (Number(key) !== currentQuestion.nomorUrut) {
-            newCount++;
-          }
-        });
+        const updatedAnswers = { ...answers };
+        delete updatedAnswers[question.nomorUrut];
         setSessionData({
           ...sessionData,
-          dijawab_count: newCount,
+          dijawab_count: countAnsweredQuestions(updatedAnswers),
         });
       }
       
@@ -878,11 +959,15 @@ export default function TestPage() {
                 </Badge>
 
                 {/* Multiple Choice Question */}
-                {(currentQuestion.questionType === 'QUESTION_TYPE_MULTIPLE_CHOICE' || currentQuestion.mcPertanyaan) && (
+                {getQuestionType(currentQuestion.questionType, getQuestionOptions(currentQuestion).length, getQuestionSelectedIndices(currentQuestion).length) !== QUESTION_TYPE_DRAG_DROP && (
                   <>
-                    <Text fontSize="lg" fontWeight="medium">
-                      {currentQuestion.mcPertanyaan || currentQuestion.pertanyaan}
-                    </Text>
+                    <Box
+                      fontSize="lg"
+                      fontWeight="medium"
+                      dangerouslySetInnerHTML={{
+                        __html: sanitizeHtml(currentQuestion.mcPertanyaan || currentQuestion.pertanyaan || ''),
+                      }}
+                    />
 
                     {((currentQuestion.mcGambar && currentQuestion.mcGambar.length > 0) || 
                       (currentQuestion.gambar && currentQuestion.gambar.length > 0)) && (
@@ -913,65 +998,113 @@ export default function TestPage() {
                       </Box>
                     )}
 
-                    <RadioGroup value={answers[currentQuestion.nomorUrut] || ''}>
+                    {getQuestionType(currentQuestion.questionType, getQuestionOptions(currentQuestion).length, getQuestionSelectedIndices(currentQuestion).length) === QUESTION_TYPE_MULTIPLE_CHOICE_COMPLEX ? (
                       <VStack spacing={3} align="stretch">
-                        <Box
-                          p={3}
-                          borderWidth="1px"
-                          borderRadius="md"
-                          cursor="pointer"
-                          _hover={{ bg: 'gray.50' }}
-                          bg={answers[currentQuestion.nomorUrut] === 'A' ? 'orange.50' : 'white'}
-                          onClick={() => handleAnswerChange(currentQuestion.nomorUrut, 'A')}
-                        >
-                          <Radio value="A">A. {currentQuestion.mcOpsiA || currentQuestion.opsiA}</Radio>
-                        </Box>
-                        <Box
-                          p={3}
-                          borderWidth="1px"
-                          borderRadius="md"
-                          cursor="pointer"
-                          _hover={{ bg: 'gray.50' }}
-                          bg={answers[currentQuestion.nomorUrut] === 'B' ? 'orange.50' : 'white'}
-                          onClick={() => handleAnswerChange(currentQuestion.nomorUrut, 'B')}
-                        >
-                          <Radio value="B">B. {currentQuestion.mcOpsiB || currentQuestion.opsiB}</Radio>
-                        </Box>
-                        <Box
-                          p={3}
-                          borderWidth="1px"
-                          borderRadius="md"
-                          cursor="pointer"
-                          _hover={{ bg: 'gray.50' }}
-                          bg={answers[currentQuestion.nomorUrut] === 'C' ? 'orange.50' : 'white'}
-                          onClick={() => handleAnswerChange(currentQuestion.nomorUrut, 'C')}
-                        >
-                          <Radio value="C">C. {currentQuestion.mcOpsiC || currentQuestion.opsiC}</Radio>
-                        </Box>
-                        <Box
-                          p={3}
-                          borderWidth="1px"
-                          borderRadius="md"
-                          cursor="pointer"
-                          _hover={{ bg: 'gray.50' }}
-                          bg={answers[currentQuestion.nomorUrut] === 'D' ? 'orange.50' : 'white'}
-                          onClick={() => handleAnswerChange(currentQuestion.nomorUrut, 'D')}
-                        >
-                          <Radio value="D">D. {currentQuestion.mcOpsiD || currentQuestion.opsiD}</Radio>
-                        </Box>
+                        {getQuestionOptions(currentQuestion).map((option, index) => {
+                          const optionNumber = index + 1;
+                          const isSelected = (answers[currentQuestion.nomorUrut] || []).includes(optionNumber);
+
+                          return (
+                            <Box
+                              key={`${currentQuestion.nomorUrut}-${optionNumber}`}
+                              p={3}
+                              borderWidth="1px"
+                              borderRadius="md"
+                              cursor="pointer"
+                              _hover={{ bg: 'gray.50' }}
+                              bg={isSelected ? 'orange.50' : 'white'}
+                              onClick={() => {
+                                const currentSelection = answers[currentQuestion.nomorUrut] || [];
+                                const nextSelection = currentSelection.includes(optionNumber)
+                                  ? currentSelection.filter((value) => value !== optionNumber)
+                                  : [...currentSelection, optionNumber];
+
+                                if (nextSelection.length === 0) {
+                                  handleClearAnswer(currentQuestion);
+                                  return;
+                                }
+
+                                handleAnswerChange(currentQuestion.nomorUrut, nextSelection);
+                              }}
+                            >
+                              <HStack align="start" spacing={3}>
+                                <Checkbox
+                                  mt={1}
+                                  isChecked={isSelected}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    const currentSelection = answers[currentQuestion.nomorUrut] || [];
+                                    const nextSelection = currentSelection.includes(optionNumber)
+                                      ? currentSelection.filter((value) => value !== optionNumber)
+                                      : [...currentSelection, optionNumber];
+
+                                    if (nextSelection.length === 0) {
+                                      handleClearAnswer(currentQuestion);
+                                      return;
+                                    }
+
+                                    handleAnswerChange(currentQuestion.nomorUrut, nextSelection);
+                                  }}
+                                />
+                                <Box flex="1">
+                                  <Text fontWeight={isSelected ? 'semibold' : 'normal'}>
+                                    {getOptionLabel(optionNumber)}.
+                                  </Text>
+                                  <Box
+                                    mt={1}
+                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(option) }}
+                                  />
+                                </Box>
+                              </HStack>
+                            </Box>
+                          );
+                        })}
                       </VStack>
-                    </RadioGroup>
+                    ) : (
+                      <RadioGroup value={String((answers[currentQuestion.nomorUrut] || [])[0] || '')}>
+                        <VStack spacing={3} align="stretch">
+                          {getQuestionOptions(currentQuestion).map((option, index) => {
+                            const optionNumber = index + 1;
+                            const isSelected = (answers[currentQuestion.nomorUrut] || [])[0] === optionNumber;
+
+                            return (
+                              <Box
+                                key={`${currentQuestion.nomorUrut}-${optionNumber}`}
+                                p={3}
+                                borderWidth="1px"
+                                borderRadius="md"
+                                cursor="pointer"
+                                _hover={{ bg: 'gray.50' }}
+                                bg={isSelected ? 'orange.50' : 'white'}
+                                onClick={() => handleAnswerChange(currentQuestion.nomorUrut, [optionNumber])}
+                              >
+                                <Radio
+                                  value={String(optionNumber)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleAnswerChange(currentQuestion.nomorUrut, [optionNumber]);
+                                  }}
+                                >
+                                  {getOptionLabel(optionNumber)}.{' '}
+                                  <Box as="span" dangerouslySetInnerHTML={{ __html: sanitizeHtml(option) }} />
+                                </Radio>
+                              </Box>
+                            );
+                          })}
+                        </VStack>
+                      </RadioGroup>
+                    )}
                   </>
                 )}
 
                 {/* Drag-Drop Question */}
                 {/* Drag-Drop Question */}
-                {(currentQuestion.questionType === 'QUESTION_TYPE_DRAG_DROP' || currentQuestion.ddPertanyaan) && (
+                {(getQuestionType(currentQuestion.questionType, getQuestionOptions(currentQuestion).length, getQuestionSelectedIndices(currentQuestion).length) === QUESTION_TYPE_DRAG_DROP || currentQuestion.ddPertanyaan) && (
                   <DragDropQuestion {...getDragDropQuestionProps()!} />
                 )}
                 
                 {/* Legacy Inline Implementation (Disabled) */}
-                {false && (currentQuestion.questionType === 'QUESTION_TYPE_DRAG_DROP' || currentQuestion.ddPertanyaan) && (
+                {false && (getQuestionType(currentQuestion.questionType, getQuestionOptions(currentQuestion).length, getQuestionSelectedIndices(currentQuestion).length) === QUESTION_TYPE_DRAG_DROP || currentQuestion.ddPertanyaan) && (
                   <>
                     {/* Question Text */}
                     <Box mb={4} p={4} bg="gray.50" borderRadius="md" borderLeftWidth="4px" borderLeftColor="blue.500">

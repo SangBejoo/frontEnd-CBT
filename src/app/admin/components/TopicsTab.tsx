@@ -62,6 +62,8 @@ export default React.memo(function TopicsTab() {
       idMataPelajaran: '', 
       idTingkat: '', 
       nama: '',
+      parentId: '',
+      sequenceOrder: '1',
       isActive: true,
       defaultDurasiMenit: '60',
       defaultJumlahSoal: '20',
@@ -71,6 +73,8 @@ export default React.memo(function TopicsTab() {
         idMataPelajaran: parseInt(values.idMataPelajaran),
         idTingkat: parseInt(values.idTingkat),
         nama: values.nama,
+        parentId: values.parentId ? parseInt(values.parentId) : 0,
+        sequenceOrder: parseInt(values.sequenceOrder) || 1,
         isActive: values.isActive,
         defaultDurasiMenit: parseInt(values.defaultDurasiMenit),
         defaultJumlahSoal: parseInt(values.defaultJumlahSoal),
@@ -100,6 +104,11 @@ export default React.memo(function TopicsTab() {
     }
     return countMap;
   }, [questionCounts]);
+
+  const parentOptions = useMemo(
+    () => topics.filter((topic) => !editingTopic || topic.id !== editingTopic.id),
+    [topics, editingTopic]
+  );
 
   const filteredTopics = useMemo(() => {
     let filtered = topics.filter((topic) => {
@@ -131,6 +140,14 @@ export default React.memo(function TopicsTab() {
       if (a.isActive && !b.isActive) return -1;
       if (!a.isActive && b.isActive) return 1;
 
+      const parentA = a.parentId ?? 0;
+      const parentB = b.parentId ?? 0;
+      if (parentA !== parentB) return parentA - parentB;
+
+      const orderA = a.sequenceOrder ?? 1;
+      const orderB = b.sequenceOrder ?? 1;
+      if (orderA !== orderB) return orderA - orderB;
+
       // Then sort by name within each group
       return a.nama.localeCompare(b.nama);
     });
@@ -153,6 +170,8 @@ export default React.memo(function TopicsTab() {
       form.setFieldValue('idMataPelajaran', topic.mataPelajaran.id.toString());
       form.setFieldValue('idTingkat', topic.tingkat.id.toString());
       form.setFieldValue('nama', topic.nama);
+      form.setFieldValue('parentId', topic.parentId ? topic.parentId.toString() : '');
+      form.setFieldValue('sequenceOrder', (topic.sequenceOrder ?? 1).toString());
       form.setFieldValue('isActive', topic.isActive ?? true);
       form.setFieldValue('defaultDurasiMenit', (topic.defaultDurasiMenit ?? 60).toString());
       form.setFieldValue('defaultJumlahSoal', (topic.defaultJumlahSoal ?? 20).toString());
@@ -216,6 +235,8 @@ export default React.memo(function TopicsTab() {
             <Th>Mata Pelajaran</Th>
             <Th>Tingkat</Th>
             <Th>Nama Materi</Th>
+            <Th>Parent</Th>
+            <Th>Urutan</Th>
             <Th>Status</Th>
             <Th>Durasi (menit)</Th>
             <Th>Jumlah Soal</Th>
@@ -228,6 +249,12 @@ export default React.memo(function TopicsTab() {
               <Td>{topic.mataPelajaran.nama}</Td>
               <Td>{topic.tingkat.nama}</Td>
               <Td>{topic.nama}</Td>
+              <Td>
+                {topic.parentId
+                  ? topics.find((parent) => parent.id === topic.parentId)?.nama || `Parent #${topic.parentId}`
+                  : '-'}
+              </Td>
+              <Td>{topic.sequenceOrder ?? 1}</Td>
               <Td>{topic.isActive ? '✓ Aktif' : '✗ Tidak Aktif'}</Td>
               <Td>{topic.defaultDurasiMenit ?? 60}</Td>
               <Td>
@@ -297,6 +324,32 @@ export default React.memo(function TopicsTab() {
                 </Select>
               </FormControl>
               <FormControl>
+                <FormLabel>Parent Materi</FormLabel>
+                <Select
+                  name="parentId"
+                  value={form.values.parentId}
+                  onChange={form.handleChange}
+                  placeholder="Tanpa parent"
+                >
+                  {parentOptions.map((topic) => (
+                    <option key={topic.id} value={topic.id.toString()}>
+                      {topic.mataPelajaran.nama} - {topic.tingkat.nama} - {topic.nama}
+                    </option>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl>
+                <FormLabel>Urutan Dalam Parent</FormLabel>
+                <Input
+                  name="sequenceOrder"
+                  type="number"
+                  value={form.values.sequenceOrder}
+                  onChange={form.handleChange}
+                  placeholder="1"
+                  min="1"
+                />
+              </FormControl>
+              <FormControl>
                 <FormLabel>Nama Materi</FormLabel>
                 <Input
                   name="nama"
@@ -356,11 +409,11 @@ export default React.memo(function TopicsTab() {
             </Button>
             <Button
               variant="ghost"
-              onClick={() => {
-                onClose();
-                setEditingTopic(null);
-                form.reset();
-              }}
+                onClick={() => {
+                  onClose();
+                  setEditingTopic(null);
+                  form.reset();
+                }}
             >
               Batal
             </Button>

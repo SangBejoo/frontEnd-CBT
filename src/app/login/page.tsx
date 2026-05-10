@@ -39,7 +39,7 @@ export default function LoginPage() {
       // Redirect based on role
       if (userData.role === 'ADMIN') {
         router.push('/admin');
-      } else if (userData.role === 'SISWA') {
+      } else if (userData.role === 'USER') {
         router.push('/student');
       } else {
         router.push('/student'); // Default fallback

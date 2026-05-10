@@ -118,7 +118,7 @@ export default function HistoryTab() {
       <VStack spacing={6} align="stretch">
         <Box bg="blue.50" py={6} px={4} borderRadius="md" textAlign="center">
           <Heading as="h1" size="lg" color="blue.700">
-            RIWAYAT SESI SISWA
+            RIWAYAT SESI USER
           </Heading>
         </Box>
 
