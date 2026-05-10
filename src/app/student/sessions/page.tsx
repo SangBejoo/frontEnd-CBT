@@ -73,26 +73,7 @@ export default function SessionsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { user, isLoading: isAuthLoading } = useAuth();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Debounce search query
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-      setCurrentPage(1); // Reset to page 1 on search
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (mounted && !isAuthLoading) {
-      fetchTopics();
-    }
-  }, [mounted, isAuthLoading]);
-
-  const fetchTopics = async () => {
+  const fetchTopics = useCallback(async () => {
     try {
       setIsLoadingTopics(true);
       // Request all topics at once (backend now supports large page sizes)
@@ -110,33 +91,55 @@ export default function SessionsPage() {
     } finally {
       setIsLoadingTopics(false);
     }
-  };
+  }, [toast]);
 
-  // Get unique tingkat levels
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      setCurrentPage(1); // Reset to page 1 on search
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (mounted && !isAuthLoading) {
+      fetchTopics();
+    }
+  }, [mounted, isAuthLoading, fetchTopics]);
+
+  // Only show parent/root materials to students.
+  const parentTopics = useMemo(() => {
+    return topics.filter((topic) => topic.isActive !== false && !topic.parentId);
+  }, [topics]);
+
+  // Get unique tingkat levels from parent materials only
   const tingkatOptions = useMemo(() => {
     const unique = Array.from(
       new Map(
-        topics.map((t) => [t.tingkat.id, { id: t.tingkat.id, nama: t.tingkat.nama }])
+        parentTopics.map((t) => [t.tingkat.id, { id: t.tingkat.id, nama: t.tingkat.nama }])
       ).values()
     ).sort((a, b) => a.id - b.id);
     return unique;
-  }, [topics]);
+  }, [parentTopics]);
 
   // Filter and search logic - memoized to prevent unnecessary recalculations
   const filteredTopics = useMemo(() => {
-    return topics
-      .filter((topic) => topic.isActive !== false) // Only show active topics
-      .filter((topic) => {
-        const matchesSearch =
-          debouncedSearchQuery === '' ||
-          topic.nama.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          topic.mataPelajaran.nama.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
+    return parentTopics.filter((topic) => {
+      const matchesSearch =
+        debouncedSearchQuery === '' ||
+        topic.nama.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        topic.mataPelajaran.nama.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
 
-        const matchesTingkat = selectedTingkat === '' || topic.tingkat.id.toString() === selectedTingkat;
+      const matchesTingkat = selectedTingkat === '' || topic.tingkat.id.toString() === selectedTingkat;
 
-        return matchesSearch && matchesTingkat;
-      });
-  }, [topics, debouncedSearchQuery, selectedTingkat]);
+      return matchesSearch && matchesTingkat;
+    });
+  }, [parentTopics, debouncedSearchQuery, selectedTingkat]);
 
   // Pagination
   const totalPages = Math.ceil(filteredTopics.length / ITEMS_PER_PAGE);
@@ -203,9 +206,11 @@ export default function SessionsPage() {
 
         toast({ title: 'Sesi tes berhasil dibuat!', status: 'success' });
         router.push(`/student/test/${sessionToken}`);
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error creating session:', error);
-        const errorMessage = error.response?.data?.message || error.message || 'Error membuat sesi tes';
+        const errorMessage = axios.isAxiosError(error)
+          ? error.response?.data?.message || error.message || 'Error membuat sesi tes'
+          : 'Error membuat sesi tes';
         toast({ title: errorMessage, status: 'error', duration: 5000 });
       } finally {
         setLoading(false);
@@ -213,7 +218,7 @@ export default function SessionsPage() {
         onClose();
       }
     },
-    [selectedTopic, toast, router, onClose]
+    [selectedTopic, toast, router, onClose, loading, user]
   );
 
   // Render a single topic card
@@ -269,6 +274,7 @@ export default function SessionsPage() {
       </CardBody>
     </Card>
   ));
+  TopicCard.displayName = 'TopicCard';
 
   // Memoized modal component for starting test
   const TestStartModal = React.memo(
@@ -365,6 +371,7 @@ export default function SessionsPage() {
       );
     }
   );
+  TestStartModal.displayName = 'TestStartModal';
 
   if (!mounted) return null;
 
