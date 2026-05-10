@@ -177,9 +177,16 @@ export default function SessionsPage() {
       }
       abortControllerRef.current = new AbortController();
       try {
-        // Use defaults from materi, or fallback to hardcoded defaults
-        const durasiMenit = selectedTopic.defaultDurasiMenit || 60;
-        const jumlahSoal = selectedTopic.jumlahSoalReal || selectedTopic.defaultJumlahSoal || 20;
+        const durasiMenit = selectedTopic.defaultDurasiMenit ?? 0;
+        const jumlahSoal = selectedTopic.jumlahSoalReal ?? selectedTopic.defaultJumlahSoal ?? 0;
+        if (durasiMenit < 1 || jumlahSoal < 1) {
+          toast({
+            title: 'Materi belum memiliki sub materi atau soal aktif',
+            status: 'error',
+            duration: 5000,
+          });
+          return;
+        }
 
         const payload = {
           nama_peserta: user.nama,
@@ -255,7 +262,7 @@ export default function SessionsPage() {
               {topic.nama}
             </Text>
             <Text fontSize="xs" color="gray.500">
-              📚 {topic.jumlahSoalReal || 0} soal tersedia
+              📚 {topic.jumlahSoalReal || 0} soal total
             </Text>
           </VStack>
           <HStack spacing={2} width="full" justify="center">
@@ -341,7 +348,7 @@ export default function SessionsPage() {
                             ⏱️ Waktu Pengerjaan
                           </Text>
                           <Text fontSize="lg" fontWeight="bold" color="green.600">
-                            {selectedTopic.defaultDurasiMenit || 60} Menit
+                            {selectedTopic.defaultDurasiMenit ?? 0} Menit
                           </Text>
                         </Box>
                         <Box>
@@ -349,7 +356,7 @@ export default function SessionsPage() {
                             📝 Jumlah Soal
                           </Text>
                           <Text fontSize="lg" fontWeight="bold" color="green.600">
-                            {selectedTopic.jumlahSoalReal || 0} Soal
+                            {selectedTopic.jumlahSoalReal ?? 0} Soal
                           </Text>
                         </Box>
                       </VStack>

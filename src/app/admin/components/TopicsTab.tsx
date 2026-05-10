@@ -32,18 +32,7 @@ import {
 } from '@chakra-ui/react';
 import { useCRUD, useForm, usePagination } from '../hooks';
 import { Topic } from '../types';
-import useSWR from 'swr';
-import apiClient from '../services/api';
 import { useSharedData } from '../context';
-
-type TopicCountEntry = {
-  topic_id: number;
-  count: number;
-};
-
-type TopicCountResponse = {
-  counts?: TopicCountEntry[];
-};
 
 type TopicApiPayload = {
   idMataPelajaran: number;
@@ -85,17 +74,6 @@ export default React.memo(function TopicsTab() {
   const [formMode, setFormMode] = useState<TopicFormMode>('parent');
   const { isOpen, onOpen, onClose } = useDisclosure();
 
-  const fetcher = useCallback(async (url: string) => {
-    const response = await apiClient.get<TopicCountResponse>(url);
-    return response.data?.counts || [];
-  }, []);
-
-  const { data: questionCounts } = useSWR<TopicCountEntry[]>('/question-counts', fetcher, { 
-    revalidateOnFocus: false, 
-    revalidateOnReconnect: false,
-    dedupingInterval: 60000, // 1 minute cache
-  });
-
   const form = useForm({
     initialValues: { 
       idMataPelajaran: '', 
@@ -116,6 +94,7 @@ export default React.memo(function TopicsTab() {
         return;
       }
 
+      const isParentMode = formMode === 'parent';
       const data: TopicApiPayload = {
         idMataPelajaran: parseInt(values.idMataPelajaran),
         idTingkat: parseInt(values.idTingkat),
@@ -123,8 +102,8 @@ export default React.memo(function TopicsTab() {
         parentId: formMode === 'sub' && values.parentId ? parseInt(values.parentId) : 0,
         sequenceOrder: parseInt(values.sequenceOrder) || 1,
         isActive: values.isActive,
-        defaultDurasiMenit: parseInt(values.defaultDurasiMenit),
-        defaultJumlahSoal: parseInt(values.defaultJumlahSoal),
+        defaultDurasiMenit: isParentMode ? 0 : parseInt(values.defaultDurasiMenit),
+        defaultJumlahSoal: isParentMode ? 0 : parseInt(values.defaultJumlahSoal),
       };
       if (editingTopic) {
         await update(editingTopic.id, data as unknown as Partial<Omit<Topic, 'id'>>);
@@ -140,16 +119,6 @@ export default React.memo(function TopicsTab() {
     const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
-
-  const questionCountByTopic = useMemo(() => {
-    const countMap: Record<number, number> = {};
-    if (questionCounts) {
-      questionCounts.forEach((count) => {
-        countMap[count.topic_id] = count.count;
-      });
-    }
-    return countMap;
-  }, [questionCounts]);
 
   const parentOptions = useMemo(
     () => topics.filter((topic) => {
@@ -260,6 +229,9 @@ export default React.memo(function TopicsTab() {
     sectionTopics,
     pagination,
     showParentColumn,
+    durationLabel,
+    questionCountLabel,
+    questionCountDisplayMode,
   }: {
     title: string;
     description: string;
@@ -274,6 +246,9 @@ export default React.memo(function TopicsTab() {
       prevPage: () => void;
     };
     showParentColumn: boolean;
+    durationLabel: string;
+    questionCountLabel: string;
+    questionCountDisplayMode: 'total' | 'ratio';
   }) => {
     const { paginatedItems, currentPage, totalPages, nextPage, prevPage } = pagination;
 
@@ -320,8 +295,8 @@ export default React.memo(function TopicsTab() {
                   {showParentColumn && <Th>Parent</Th>}
                   <Th>Urutan</Th>
                   <Th>Status</Th>
-                  <Th>Durasi (menit)</Th>
-                  <Th>Jumlah Soal</Th>
+                  <Th>{durationLabel}</Th>
+                  <Th>{questionCountLabel}</Th>
                   <Th>Aksi</Th>
                 </Tr>
               </Thead>
@@ -340,11 +315,15 @@ export default React.memo(function TopicsTab() {
                     )}
                     <Td>{topic.sequenceOrder ?? 1}</Td>
                     <Td>{topic.isActive ? '✓ Aktif' : '✗ Tidak Aktif'}</Td>
-                    <Td>{topic.defaultDurasiMenit ?? 60}</Td>
+                    <Td>{topic.defaultDurasiMenit ?? 0}</Td>
                     <Td>
-                      <Text color={(topic.jumlahSoalReal || 0) < (topic.defaultJumlahSoal ?? 20) ? 'red.500' : 'green.500'}>
-                        {topic.jumlahSoalReal || 0} / {topic.defaultJumlahSoal ?? 20}
-                      </Text>
+                      {questionCountDisplayMode === 'total' || (topic.defaultJumlahSoal ?? 0) <= 0 ? (
+                        <Text fontWeight="semibold">{topic.jumlahSoalReal ?? 0}</Text>
+                      ) : (
+                        <Text color={(topic.jumlahSoalReal || 0) < (topic.defaultJumlahSoal ?? 20) ? 'red.500' : 'green.500'}>
+                          {topic.jumlahSoalReal || 0} / {topic.defaultJumlahSoal ?? 20}
+                        </Text>
+                      )}
                     </Td>
                     <Td>
                       <Button size="sm" mr={2} onClick={() => handleEdit(topic)}>
@@ -416,7 +395,7 @@ export default React.memo(function TopicsTab() {
       </HStack>
       {renderTopicSection({
         title: 'Parent Materi',
-        description: 'Materi utama yang akan tampil ke user.',
+        description: 'Materi utama yang tampil ke user. Durasi dan jumlah soal dihitung dari sub materi.',
         createLabel: 'Tambah Parent Materi',
         onCreateClick: () => handleCreate('parent'),
         sectionTopics: parentTopics,
@@ -428,6 +407,9 @@ export default React.memo(function TopicsTab() {
           prevPage: prevParentPage,
         },
         showParentColumn: false,
+        durationLabel: 'Durasi Total (menit)',
+        questionCountLabel: 'Jumlah Soal Total',
+        questionCountDisplayMode: 'total',
       })}
 
       {renderTopicSection({
@@ -444,6 +426,9 @@ export default React.memo(function TopicsTab() {
           prevPage: prevSubPage,
         },
         showParentColumn: true,
+        durationLabel: 'Durasi (menit)',
+        questionCountLabel: 'Jumlah Soal',
+        questionCountDisplayMode: 'ratio',
       })}
 
       <Modal isOpen={isOpen} onClose={handleClose}>
@@ -539,33 +524,55 @@ export default React.memo(function TopicsTab() {
                   <option value="false">✗ Tidak Aktif (Sembunyikan dari Siswa)</option>
                 </Select>
               </FormControl>
-              <FormControl>
-                <FormLabel>Durasi Pengerjaan (menit)</FormLabel>
-                <Input
-                  name="defaultDurasiMenit"
-                  type="number"
-                  value={form.values.defaultDurasiMenit}
-                  onChange={form.handleChange}
-                  placeholder="60"
-                  min="1"
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Jumlah Soal</FormLabel>
-                <Input
-                  name="defaultJumlahSoal"
-                  type="number"
-                  value={form.values.defaultJumlahSoal}
-                  onChange={form.handleChange}
-                  placeholder="20"
-                  min="1"
-                />
-                {editingTopic && (
-                  <Text fontSize="sm" color="gray.600" mt={1}>
-                    Soal saat ini: {questionCountByTopic[editingTopic.id] || 0}
+              {formMode === 'parent' ? (
+                <Box
+                  w="full"
+                  borderWidth="1px"
+                  borderColor="orange.200"
+                  bg="orange.50"
+                  borderRadius="md"
+                  p={3}
+                >
+                  <Text fontSize="sm" color="orange.700" fontWeight="medium">
+                    Parent materi hanya cangkang. Durasi dan jumlah soal dihitung otomatis dari sub materi.
                   </Text>
-                )}
-              </FormControl>
+                  {editingTopic && (
+                    <Text fontSize="sm" color="gray.600" mt={2}>
+                      Total saat ini: {editingTopic.defaultDurasiMenit ?? 0} menit, {editingTopic.jumlahSoalReal ?? 0} soal.
+                    </Text>
+                  )}
+                </Box>
+              ) : (
+                <>
+                  <FormControl>
+                    <FormLabel>Durasi Pengerjaan (menit)</FormLabel>
+                    <Input
+                      name="defaultDurasiMenit"
+                      type="number"
+                      value={form.values.defaultDurasiMenit}
+                      onChange={form.handleChange}
+                      placeholder="60"
+                      min="1"
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>Jumlah Soal</FormLabel>
+                    <Input
+                      name="defaultJumlahSoal"
+                      type="number"
+                      value={form.values.defaultJumlahSoal}
+                      onChange={form.handleChange}
+                      placeholder="20"
+                      min="1"
+                    />
+                    {editingTopic && (
+                      <Text fontSize="sm" color="gray.600" mt={1}>
+                        Soal saat ini: {editingTopic.jumlahSoalReal ?? 0}
+                      </Text>
+                    )}
+                  </FormControl>
+                </>
+              )}
             </VStack>
           </ModalBody>
           <ModalFooter>
