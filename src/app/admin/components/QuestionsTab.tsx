@@ -26,7 +26,6 @@ import {
   Text,
   Badge,
   Heading,
-  Divider,
   Accordion,
   AccordionItem,
   AccordionButton,
@@ -189,11 +188,30 @@ const parseCsvText = (csvText: string) => {
     const row: Record<string, string> = {};
 
     headers.forEach((header, index) => {
-      row[header] = (values[index] ?? '').trim();
+      const cellValue = (values[index] ?? '').trim();
+      const normalizedHeader = header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+      row[header] = cellValue;
+      if (normalizedHeader) {
+        row[normalizedHeader] = cellValue;
+      }
     });
 
     return row;
   });
+};
+
+const normalizeCsvKey = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const readCsvField = (row: Record<string, string>, ...aliases: string[]) => {
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeCsvKey(alias);
+    const value = row[normalizedAlias] ?? row[alias] ?? row[alias.toLowerCase()];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return '';
 };
 
 const escapeCsvCell = (value: string) => {
@@ -203,33 +221,27 @@ const escapeCsvCell = (value: string) => {
 
 const buildQuestionTemplateCsv = () => {
   const headers = [
-    'id_materi',
-    'id_tingkat',
-    'pertanyaan',
+    'question_text',
     'question_type',
-    'options_json',
-    'correct_option_indices_json',
-    'pembahasan',
+    'options',
+    'correct_option_indices',
+    'explanation_html',
   ];
 
   const rows = [
     [
-      1,
-      1,
-      '<p>Contoh <strong>pertanyaan</strong> pilihan ganda</p>',
+      'Contoh soal pilihan ganda biasa',
       'multiple_choice',
-      '["<p>Opsi A</p>","<p>Opsi B</p>","<p>Opsi C</p>","<p>Opsi D</p>"]',
-      '[1]',
-      '<p>Tulis <em>pembahasan</em> di sini</p>',
+      '["Opsi A","Opsi B","Opsi C","Opsi D"]',
+      '[2]',
+      'Satu jawaban benar.',
     ],
     [
-      1,
-      1,
-      '<p>Contoh pertanyaan pilihan ganda kompleks</p>',
+      'Contoh soal multiple choices complex',
       'multiple_choice_complex',
-      '["<p>Opsi 1</p>","<p>Opsi 2</p>","<p>Opsi 3</p>","<p>Opsi 4</p>","<p>Opsi 5</p>"]',
+      '["Jawaban 1","Jawaban 2","Jawaban 3","Jawaban 4","Jawaban 5"]',
       '[1,3,5]',
-      '<p>Contoh pembahasan untuk soal kompleks</p>',
+      'Bisa lebih dari satu jawaban benar.',
     ],
   ];
 
@@ -648,13 +660,15 @@ export default function QuestionsTab() {
 
   const { isOpen: isQuestionOpen, onOpen: onQuestionOpen, onClose: onQuestionClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  const { isOpen: isImportOpen, onOpen: onImportOpen, onClose: onImportClose } = useDisclosure();
 
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [currentDeleteId, setCurrentDeleteId] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
-  const importFileInputRef = useRef<HTMLInputElement>(null);
+  const [importMateri, setImportMateri] = useState<Topic | null>(null);
+  const [importCsvFile, setImportCsvFile] = useState<File | null>(null);
 
   // State untuk single open level
   const [openLevelName, setOpenLevelName] = useState<string | null>(null);
@@ -762,6 +776,13 @@ export default function QuestionsTab() {
     setCurrentLevelPage(1);
   }, [searchTerm, selectedLevelFilter]);
 
+  useEffect(() => {
+    if (isImportOpen) {
+      setImportMateri(preselectedMateri);
+      setImportCsvFile(null);
+    }
+  }, [isImportOpen, preselectedMateri]);
+
   // Handler buka modal tambah soal dengan context
   const handleOpenNewQuestion = useCallback((context?: { level?: string; subject?: string; topic?: string }) => {
     setAddContext(context || null);
@@ -829,7 +850,6 @@ export default function QuestionsTab() {
 
       const questionData = {
         idMateri: formValues.materi.id,
-        idTingkat: formValues.materi.tingkat.id,
         pertanyaan: formValues.pertanyaan,
         questionType: resolvedQuestionType === QUESTION_TYPE_COMPLEX ? 'MULTIPLE_CHOICE_COMPLEX' : 'MULTIPLE_CHOICE',
         options,
@@ -922,8 +942,8 @@ export default function QuestionsTab() {
   }, [downloadQuestionTemplate, toast]);
 
   const handleImportCsvClick = useCallback(() => {
-    importFileInputRef.current?.click();
-  }, []);
+    onImportOpen();
+  }, [onImportOpen]);
 
   const parseArrayCell = (value: string | undefined) => {
     const trimmed = (value || '').trim();
@@ -942,11 +962,23 @@ export default function QuestionsTab() {
     }
   };
 
-  const handleCsvImport = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
+  const parseCsvCorrectIndex = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return NaN;
+    }
 
-    if (!file) {
+    const normalized = trimmed.toUpperCase();
+    if (/^[A-Z]$/.test(normalized)) {
+      return normalized.charCodeAt(0) - 64;
+    }
+
+    const numeric = Number(trimmed);
+    return Number.isFinite(numeric) ? Math.trunc(numeric) : NaN;
+  };
+
+  const handleCsvImport = useCallback(async (file: File, materi: Topic) => {
+    if (!file || !materi?.id) {
       return;
     }
 
@@ -961,46 +993,79 @@ export default function QuestionsTab() {
       }
 
       const items = rows
-        .map((row, index) => {
-          const rawOptions = parseArrayCell(row.options_json || row.options || row.optionsJson);
+        .map((row) => {
+          const questionText = readCsvField(
+            row,
+            'question_text',
+            'questionText',
+            'question',
+            'pertanyaan'
+          );
+          const questionTypeRaw = readCsvField(row, 'question_type', 'questionType', 'type');
+          const optionsCell = readCsvField(
+            row,
+            'options',
+            'options_json',
+            'optionsJson',
+            'opsi',
+            'opsi_json'
+          );
+          const correctIndicesCell = readCsvField(
+            row,
+            'correct_option_indices',
+            'correct_option_indices_json',
+            'correctOptionIndices',
+            'correctOptionIndicesJson',
+            'correct_option_index',
+            'correctOptionIndex',
+            'jawaban_benar',
+            'jawabanBenar'
+          );
+          const explanation = readCsvField(
+            row,
+            'explanation_html',
+            'explanationHtml',
+            'pembahasan',
+            'explanation'
+          );
+
+          const rawOptions = parseArrayCell(optionsCell);
           const legacyOptions = rawOptions.length > 0
             ? rawOptions
             : [
-                row.opsi_a || row.opsiA,
-                row.opsi_b || row.opsiB,
-                row.opsi_c || row.opsiC,
-                row.opsi_d || row.opsiD,
+                readCsvField(row, 'option_a', 'opsi_a', 'opsiA'),
+                readCsvField(row, 'option_b', 'opsi_b', 'opsiB'),
+                readCsvField(row, 'option_c', 'opsi_c', 'opsiC'),
+                readCsvField(row, 'option_d', 'opsi_d', 'opsiD'),
               ].filter(Boolean);
 
           const options = legacyOptions
             .map((option) => (typeof option === 'string' ? option.trim() : String(option ?? '').trim()))
             .filter((option) => option.length > 0);
 
-          const parsedCorrectIndices = parseArrayCell(
-            row.correct_option_indices_json || row.correctOptionIndicesJson || row.correctOptionIndices
-          )
-            .map((value) => Number(value))
+          const parsedCorrectIndices = parseArrayCell(correctIndicesCell)
+            .map(parseCsvCorrectIndex)
             .filter((value) => Number.isFinite(value) && value > 0);
-
-          const correctOptionIndices = normalizeIndices(parsedCorrectIndices.length > 0 ? parsedCorrectIndices : [Number(row.jawaban_benar || row.jawabanBenar || 1)]);
-          const questionType = normalizeQuestionType(
-            row.question_type || row.questionType,
-            options.length,
-            correctOptionIndices.length
+          const fallbackCorrectIndex = parseCsvCorrectIndex(correctIndicesCell);
+          const correctOptionIndices = normalizeIndices(
+            parsedCorrectIndices.length > 0
+              ? parsedCorrectIndices
+              : Number.isFinite(fallbackCorrectIndex) && fallbackCorrectIndex > 0
+                ? [fallbackCorrectIndex]
+                : []
           );
+          const questionType = normalizeQuestionType(questionTypeRaw, options.length, correctOptionIndices.length);
 
           return {
-            idMateri: Number(row.id_materi || row.idMateri || 0),
-            idTingkat: Number(row.id_tingkat || row.idTingkat || 0),
-            pertanyaan: row.pertanyaan || row.question || '',
+            idMateri: materi.id,
+            pertanyaan: questionText,
             questionType: questionType === QUESTION_TYPE_COMPLEX ? 'MULTIPLE_CHOICE_COMPLEX' : 'MULTIPLE_CHOICE',
             options,
             correctOptionIndices,
-            pembahasan: row.pembahasan || '',
-            rowNumber: index + 1,
+            pembahasan: explanation,
           };
         })
-        .filter((item) => item.idMateri > 0 && item.idTingkat > 0 && item.pertanyaan && item.options.length >= 2 && item.correctOptionIndices.length > 0);
+        .filter((item) => item.idMateri > 0 && item.pertanyaan && item.options.length >= 2 && item.correctOptionIndices.length > 0);
 
       if (items.length === 0) {
         toast({ title: 'Tidak ada baris valid untuk diimport', status: 'warning' });
@@ -1015,6 +1080,20 @@ export default function QuestionsTab() {
       setIsImportingCsv(false);
     }
   }, [bulkCreateQuestions, toast]);
+
+  const handleConfirmCsvImport = useCallback(async () => {
+    if (!importMateri?.id || !importCsvFile) {
+      toast({ title: 'Pilih materi dan file CSV terlebih dahulu', status: 'warning' });
+      return;
+    }
+
+    try {
+      await handleCsvImport(importCsvFile, importMateri);
+      onImportClose();
+    } catch {
+      // Error toast already handled in handleCsvImport
+    }
+  }, [handleCsvImport, importCsvFile, importMateri, onImportClose, toast]);
 
   const renderQuestionCard = useCallback((question: any) => (
     <Card key={question.id} size="sm" mb={3}>
@@ -1107,13 +1186,52 @@ export default function QuestionsTab() {
           </HStack>
         </Box>
 
-        <Input
-          ref={importFileInputRef}
-          type="file"
-          accept=".csv,text/csv"
-          display="none"
-          onChange={handleCsvImport}
-        />
+        <Modal isOpen={isImportOpen} onClose={onImportClose} size="lg">
+          <ModalOverlay />
+          <ModalContent>
+            <ModalHeader>Import CSV Soal</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody>
+              <VStack spacing={4} align="stretch">
+                <Text fontSize="sm" color="gray.600">
+                  Pilih materi tujuan, lalu unggah CSV yang hanya berisi data soal, opsi, jawaban benar, dan pembahasan.
+                </Text>
+                <FormControl isRequired>
+                  <FormLabel>Materi</FormLabel>
+                  <MateriSelect
+                    value={importMateri?.id}
+                    onChange={(topic) => setImportMateri(topic)}
+                    topics={topics}
+                  />
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel>File CSV</FormLabel>
+                  <Input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => setImportCsvFile(event.target.files?.[0] ?? null)}
+                  />
+                  <Text fontSize="xs" color="gray.500" mt={2}>
+                    Kolom yang didukung: `question_text`, `question_type`, `options`, `correct_option_indices`, `explanation_html`.
+                  </Text>
+                  {importCsvFile && (
+                    <Text fontSize="xs" color="gray.600" mt={1}>
+                      File terpilih: {importCsvFile.name}
+                    </Text>
+                  )}
+                </FormControl>
+              </VStack>
+            </ModalBody>
+            <ModalFooter gap={2}>
+              <Button variant="outline" onClick={onImportClose} isDisabled={isImportingCsv}>
+                Batal
+              </Button>
+              <Button colorScheme="green" onClick={handleConfirmCsvImport} isLoading={isImportingCsv}>
+                Import
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
 
         <HStack spacing={4} mb={4}>
           <FormControl>
@@ -1149,7 +1267,7 @@ export default function QuestionsTab() {
           </Box>
         ) : (
           <VStack spacing={4} align="stretch">
-            {getPaginatedLevels().map(([levelName, subjects], levelIndex) => (
+            {getPaginatedLevels().map(([levelName, subjects]) => (
               <Box key={levelName}>
                 <Button
                   bg="blue.50"
