@@ -48,7 +48,7 @@ interface Topic {
   jumlahSoalReal?: number;
 }
 
-const TOPICS_API = process.env.NEXT_PUBLIC_API_BASE + '/v1/materi';
+const TOPICS_API = process.env.NEXT_PUBLIC_API_BASE + '/v1/materi/parents';
 const CREATE_SESSION_API = process.env.NEXT_PUBLIC_API_BASE + '/v1/test-sessions';
 const ITEMS_PER_PAGE = 8; // Maximum 10 items per page
 
@@ -76,7 +76,7 @@ export default function SessionsPage() {
   const fetchTopics = useCallback(async () => {
     try {
       setIsLoadingTopics(true);
-      // Request all topics at once (backend now supports large page sizes)
+      // Request all parent topics at once (backend is the source of truth)
       const response = await axios.get(TOPICS_API, {
         params: {
           page: 1,

@@ -93,6 +93,7 @@ interface Topic {
   nama: string;
   mataPelajaran: { id: number; nama: string };
   tingkat: { id: number; nama: string };
+  parentId?: number | null;
 }
 
 // Image compression utility (max 400x400, 70% quality, under 200KB)
@@ -424,7 +425,7 @@ function DragDropFormModal({
       return;
     }
     if (!formData.idMateri) {
-      toast({ title: 'Pilih materi', status: 'warning' });
+      toast({ title: 'Pilih sub materi', status: 'warning' });
       return;
     }
     if (formData.items.some(item => !item.label)) {
@@ -484,7 +485,7 @@ function DragDropFormModal({
           <VStack spacing={5} align="stretch">
             {/* Materi Select */}
             <FormControl isRequired>
-              <FormLabel>Materi</FormLabel>
+              <FormLabel>Sub Materi</FormLabel>
               <Select
                 value={formData.idMateri || ''}
                 onChange={(e) => {
@@ -498,7 +499,7 @@ function DragDropFormModal({
                   }
                 }}
               >
-                <option value="" disabled>Pilih Materi</option>
+                <option value="" disabled>Pilih Sub Materi</option>
                 {topics.map(t => (
                   <option key={t.id} value={t.id}>
                     {t.mataPelajaran.nama} • {t.tingkat.nama} • {t.nama}
@@ -891,6 +892,7 @@ export default function DragDropQuestionsTab({ topics }: { topics: Topic[] }) {
   const [isLoading, setIsLoading] = useState(true);
   const [currentQuestion, setCurrentQuestion] = useState<DragDropQuestionData | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const subTopics = useMemo(() => topics.filter((topic) => Boolean(topic.parentId)), [topics]);
   
   const { isOpen: isFormOpen, onOpen: onFormOpen, onClose: onFormClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
@@ -1044,7 +1046,7 @@ export default function DragDropQuestionsTab({ topics }: { topics: Topic[] }) {
           isOpen={isFormOpen}
           onClose={onFormClose}
           question={currentQuestion}
-          topics={topics}
+          topics={subTopics}
           onSave={handleSaveQuestion}
         />
 

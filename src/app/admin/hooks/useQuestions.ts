@@ -69,9 +69,9 @@ export function useQuestions(options: UseQuestionsOptions = { autoFetch: true })
     return Array.from(subjectMap.values());
   }, [questions]);
 
-  // Topics from API (needed for form with full list)
+  // Only sub materi should be selectable from the question form
   const topics = useMemo<Topic[]>(() => {
-    return topicsData || [];
+    return (topicsData || []).filter((topic: Topic) => Boolean(topic.parentId));
   }, [topicsData]);
 
   useEffect(() => {

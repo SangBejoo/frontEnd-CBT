@@ -23,6 +23,7 @@ import {
   Input,
   Select,
   useDisclosure,
+  useToast,
   VStack,
   Text,
   HStack,
@@ -55,14 +56,33 @@ type TopicApiPayload = {
   defaultJumlahSoal: number;
 };
 
+type TopicFormMode = 'parent' | 'sub';
+
+const sortTopics = (items: Topic[]) => [...items].sort((a, b) => {
+  if (a.isActive && !b.isActive) return -1;
+  if (!a.isActive && b.isActive) return 1;
+
+  const parentA = a.parentId ?? 0;
+  const parentB = b.parentId ?? 0;
+  if (parentA !== parentB) return parentA - parentB;
+
+  const orderA = a.sequenceOrder ?? 1;
+  const orderB = b.sequenceOrder ?? 1;
+  if (orderA !== orderB) return orderA - orderB;
+
+  return a.nama.localeCompare(b.nama);
+});
+
 export default React.memo(function TopicsTab() {
   const { data: topics, loading, create, update, remove } = useCRUD<Topic>('topics');
   const { levels, subjects, refreshTopics } = useSharedData();
+  const toast = useToast();
   const [editingTopic, setEditingTopic] = useState<Topic | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all'); // 'all', 'active', 'inactive'
   const [levelFilter, setLevelFilter] = useState<string>('all'); // 'all' or level id
+  const [formMode, setFormMode] = useState<TopicFormMode>('parent');
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const fetcher = useCallback(async (url: string) => {
@@ -88,11 +108,19 @@ export default React.memo(function TopicsTab() {
       defaultJumlahSoal: '20',
     },
     onSubmit: async (values) => {
+      if (formMode === 'sub' && !values.parentId) {
+        toast({
+          title: 'Parent materi wajib dipilih untuk sub materi',
+          status: 'warning',
+        });
+        return;
+      }
+
       const data: TopicApiPayload = {
         idMataPelajaran: parseInt(values.idMataPelajaran),
         idTingkat: parseInt(values.idTingkat),
         nama: values.nama,
-        parentId: values.parentId ? parseInt(values.parentId) : 0,
+        parentId: formMode === 'sub' && values.parentId ? parseInt(values.parentId) : 0,
         sequenceOrder: parseInt(values.sequenceOrder) || 1,
         isActive: values.isActive,
         defaultDurasiMenit: parseInt(values.defaultDurasiMenit),
@@ -104,9 +132,7 @@ export default React.memo(function TopicsTab() {
         await create(data as unknown as Omit<Topic, 'id'>);
       }
       await refreshTopics();
-      onClose();
-      form.reset();
-      setEditingTopic(null);
+      handleClose();
     },
   });
 
@@ -126,8 +152,19 @@ export default React.memo(function TopicsTab() {
   }, [questionCounts]);
 
   const parentOptions = useMemo(
-    () => topics.filter((topic) => !editingTopic || topic.id !== editingTopic.id),
-    [topics, editingTopic]
+    () => topics.filter((topic) => {
+      // Exclude self when editing
+      if (editingTopic && topic.id === editingTopic.id) return false;
+      if (topic.parentId) return false;
+      // Only show materials from the same subject + level as potential parent
+      const selectedSubject = parseInt(form.values.idMataPelajaran);
+      const selectedLevel = parseInt(form.values.idTingkat);
+      if (selectedSubject && selectedLevel) {
+        return topic.mataPelajaran.id === selectedSubject && topic.tingkat.id === selectedLevel;
+      }
+      return true;
+    }),
+    [topics, editingTopic, form.values.idMataPelajaran, form.values.idTingkat]
   );
 
   const filteredTopics = useMemo(() => {
@@ -154,31 +191,30 @@ export default React.memo(function TopicsTab() {
       return matchesSearch && matchesStatus && matchesLevel;
     });
 
-    // Sort: active items first, then inactive, both groups sorted by name ascending
-    filtered.sort((a, b) => {
-      // First sort by active status (active first)
-      if (a.isActive && !b.isActive) return -1;
-      if (!a.isActive && b.isActive) return 1;
-
-      const parentA = a.parentId ?? 0;
-      const parentB = b.parentId ?? 0;
-      if (parentA !== parentB) return parentA - parentB;
-
-      const orderA = a.sequenceOrder ?? 1;
-      const orderB = b.sequenceOrder ?? 1;
-      if (orderA !== orderB) return orderA - orderB;
-
-      // Then sort by name within each group
-      return a.nama.localeCompare(b.nama);
-    });
-
-    return filtered;
+    return sortTopics(filtered);
   }, [topics, debouncedSearchQuery, statusFilter, levelFilter]);
 
-  const { paginatedItems, currentPage, totalPages, nextPage, prevPage } =
-    usePagination(filteredTopics, { itemsPerPage: 10 });
+  const parentTopics = useMemo(() => filteredTopics.filter((topic) => !topic.parentId), [filteredTopics]);
+  const subTopics = useMemo(() => filteredTopics.filter((topic) => Boolean(topic.parentId)), [filteredTopics]);
 
-  const handleCreate = useCallback(() => {
+  const {
+    paginatedItems: paginatedParentTopics,
+    currentPage: parentCurrentPage,
+    totalPages: parentTotalPages,
+    nextPage: nextParentPage,
+    prevPage: prevParentPage,
+  } = usePagination(parentTopics, { itemsPerPage: 10 });
+
+  const {
+    paginatedItems: paginatedSubTopics,
+    currentPage: subCurrentPage,
+    totalPages: subTotalPages,
+    nextPage: nextSubPage,
+    prevPage: prevSubPage,
+  } = usePagination(subTopics, { itemsPerPage: 10 });
+
+  const handleCreate = useCallback((mode: TopicFormMode) => {
+    setFormMode(mode);
     setEditingTopic(null);
     form.reset();
     onOpen();
@@ -187,6 +223,7 @@ export default React.memo(function TopicsTab() {
   const handleEdit = useCallback(
     (topic: Topic) => {
       setEditingTopic(topic);
+      setFormMode(topic.parentId ? 'sub' : 'parent');
       form.setFieldValue('idMataPelajaran', topic.mataPelajaran.id.toString());
       form.setFieldValue('idTingkat', topic.tingkat.id.toString());
       form.setFieldValue('nama', topic.nama);
@@ -200,6 +237,13 @@ export default React.memo(function TopicsTab() {
     [form, onOpen]
   );
 
+  const handleClose = useCallback(() => {
+    onClose();
+    setEditingTopic(null);
+    setFormMode('parent');
+    form.reset();
+  }, [form, onClose]);
+
   const handleDelete = useCallback(
     async (id: number) => {
       await remove(id);
@@ -207,6 +251,129 @@ export default React.memo(function TopicsTab() {
     },
     [refreshTopics, remove]
   );
+
+  const renderTopicSection = ({
+    title,
+    description,
+    createLabel,
+    onCreateClick,
+    sectionTopics,
+    pagination,
+    showParentColumn,
+  }: {
+    title: string;
+    description: string;
+    createLabel: string;
+    onCreateClick: () => void;
+    sectionTopics: Topic[];
+    pagination: {
+      paginatedItems: Topic[];
+      currentPage: number;
+      totalPages: number;
+      nextPage: () => void;
+      prevPage: () => void;
+    };
+    showParentColumn: boolean;
+  }) => {
+    const { paginatedItems, currentPage, totalPages, nextPage, prevPage } = pagination;
+
+    return (
+      <Box mb={10}>
+        <HStack justify="space-between" align="start" mb={4}>
+          <Box>
+            <Text fontSize="2xl" fontWeight="bold" color="gray.800">
+              {title}
+            </Text>
+            <Text fontSize="sm" color="gray.600">
+              {description}
+            </Text>
+          </Box>
+          <Button colorScheme="purple" onClick={onCreateClick}>
+            {createLabel}
+          </Button>
+        </HStack>
+
+        {sectionTopics.length === 0 ? (
+          <Box
+            bg="gray.50"
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="md"
+            p={6}
+            textAlign="center"
+          >
+            <Text color="gray.500" mb={3}>
+              Belum ada {title.toLowerCase()}
+            </Text>
+            <Button colorScheme="purple" onClick={onCreateClick}>
+              {createLabel}
+            </Button>
+          </Box>
+        ) : (
+          <>
+            <Table variant="simple">
+              <Thead>
+                <Tr>
+                  <Th>Mata Pelajaran</Th>
+                  <Th>Tingkat</Th>
+                  <Th>Nama Materi</Th>
+                  {showParentColumn && <Th>Parent</Th>}
+                  <Th>Urutan</Th>
+                  <Th>Status</Th>
+                  <Th>Durasi (menit)</Th>
+                  <Th>Jumlah Soal</Th>
+                  <Th>Aksi</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {paginatedItems.map((topic) => (
+                  <Tr key={topic.id}>
+                    <Td>{topic.mataPelajaran.nama}</Td>
+                    <Td>{topic.tingkat.nama}</Td>
+                    <Td>{topic.nama}</Td>
+                    {showParentColumn && (
+                      <Td>
+                        {topic.parentId
+                          ? topics.find((parent) => parent.id === topic.parentId)?.nama || `Parent #${topic.parentId}`
+                          : '-'}
+                      </Td>
+                    )}
+                    <Td>{topic.sequenceOrder ?? 1}</Td>
+                    <Td>{topic.isActive ? '✓ Aktif' : '✗ Tidak Aktif'}</Td>
+                    <Td>{topic.defaultDurasiMenit ?? 60}</Td>
+                    <Td>
+                      <Text color={(topic.jumlahSoalReal || 0) < (topic.defaultJumlahSoal ?? 20) ? 'red.500' : 'green.500'}>
+                        {topic.jumlahSoalReal || 0} / {topic.defaultJumlahSoal ?? 20}
+                      </Text>
+                    </Td>
+                    <Td>
+                      <Button size="sm" mr={2} onClick={() => handleEdit(topic)}>
+                        Edit
+                      </Button>
+                      <Button size="sm" colorScheme="red" onClick={() => handleDelete(topic.id)}>
+                        Hapus
+                      </Button>
+                    </Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+            <Box mt={4} display="flex" justifyContent="space-between" alignItems="center">
+              <Button isDisabled={totalPages <= 1 || currentPage === 1} onClick={prevPage}>
+                Prev
+              </Button>
+              <Text>
+                Halaman {currentPage} dari {totalPages || 1}
+              </Text>
+              <Button isDisabled={totalPages <= 1 || currentPage === totalPages} onClick={nextPage}>
+                Next
+              </Button>
+            </Box>
+          </>
+        )}
+      </Box>
+    );
+  };
 
   return (
     <Box>
@@ -220,9 +387,6 @@ export default React.memo(function TopicsTab() {
       )}
       {!loading && (
         <>
-      <Button colorScheme="purple" onClick={handleCreate} mb={4}>
-        Tambah Materi
-      </Button>
       <Input
         placeholder="Cari materi, mata pelajaran, atau tingkat..."
         value={searchQuery}
@@ -250,67 +414,50 @@ export default React.memo(function TopicsTab() {
           </Select>
         </FormControl>
       </HStack>
-      <Table variant="simple">
-        <Thead>
-          <Tr>
-            <Th>Mata Pelajaran</Th>
-            <Th>Tingkat</Th>
-            <Th>Nama Materi</Th>
-            <Th>Parent</Th>
-            <Th>Urutan</Th>
-            <Th>Status</Th>
-            <Th>Durasi (menit)</Th>
-            <Th>Jumlah Soal</Th>
-            <Th>Aksi</Th>
-          </Tr>
-        </Thead>
-        <Tbody>
-          {paginatedItems.map((topic) => (
-            <Tr key={topic.id}>
-              <Td>{topic.mataPelajaran.nama}</Td>
-              <Td>{topic.tingkat.nama}</Td>
-              <Td>{topic.nama}</Td>
-              <Td>
-                {topic.parentId
-                  ? topics.find((parent) => parent.id === topic.parentId)?.nama || `Parent #${topic.parentId}`
-                  : '-'}
-              </Td>
-              <Td>{topic.sequenceOrder ?? 1}</Td>
-              <Td>{topic.isActive ? '✓ Aktif' : '✗ Tidak Aktif'}</Td>
-              <Td>{topic.defaultDurasiMenit ?? 60}</Td>
-              <Td>
-                <Text color={(topic.jumlahSoalReal || 0) < (topic.defaultJumlahSoal ?? 20) ? 'red.500' : 'green.500'}>
-                  {topic.jumlahSoalReal || 0} / {topic.defaultJumlahSoal ?? 20}
-                </Text>
-              </Td>
-              <Td>
-                <Button size="sm" mr={2} onClick={() => handleEdit(topic)}>
-                  Edit
-                </Button>
-                <Button size="sm" colorScheme="red" onClick={() => handleDelete(topic.id)}>
-                  Hapus
-                </Button>
-              </Td>
-            </Tr>
-          ))}
-        </Tbody>
-      </Table>
-      <Box mt={4} display="flex" justifyContent="space-between" alignItems="center">
-        <Button isDisabled={currentPage === 1} onClick={prevPage}>
-          Prev
-        </Button>
-        <Text>
-          Halaman {currentPage} dari {totalPages}
-        </Text>
-        <Button isDisabled={currentPage === totalPages} onClick={nextPage}>
-          Next
-        </Button>
-      </Box>
+      {renderTopicSection({
+        title: 'Parent Materi',
+        description: 'Materi utama yang akan tampil ke user.',
+        createLabel: 'Tambah Parent Materi',
+        onCreateClick: () => handleCreate('parent'),
+        sectionTopics: parentTopics,
+        pagination: {
+          paginatedItems: paginatedParentTopics,
+          currentPage: parentCurrentPage,
+          totalPages: parentTotalPages,
+          nextPage: nextParentPage,
+          prevPage: prevParentPage,
+        },
+        showParentColumn: false,
+      })}
 
-      <Modal isOpen={isOpen} onClose={onClose}>
+      {renderTopicSection({
+        title: 'Sub Materi',
+        description: 'Sub materi tempat input soal dilakukan.',
+        createLabel: 'Tambah Sub Materi',
+        onCreateClick: () => handleCreate('sub'),
+        sectionTopics: subTopics,
+        pagination: {
+          paginatedItems: paginatedSubTopics,
+          currentPage: subCurrentPage,
+          totalPages: subTotalPages,
+          nextPage: nextSubPage,
+          prevPage: prevSubPage,
+        },
+        showParentColumn: true,
+      })}
+
+      <Modal isOpen={isOpen} onClose={handleClose}>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>{editingTopic ? 'Edit Materi' : 'Tambah Materi'}</ModalHeader>
+          <ModalHeader>
+            {editingTopic
+              ? formMode === 'sub'
+                ? 'Edit Sub Materi'
+                : 'Edit Parent Materi'
+              : formMode === 'sub'
+                ? 'Tambah Sub Materi'
+                : 'Tambah Parent Materi'}
+          </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4}>
@@ -344,23 +491,25 @@ export default React.memo(function TopicsTab() {
                   ))}
                 </Select>
               </FormControl>
+              {formMode === 'sub' && (
+                <FormControl isRequired>
+                  <FormLabel>Parent Materi</FormLabel>
+                  <Select
+                    name="parentId"
+                    value={form.values.parentId}
+                    onChange={form.handleChange}
+                    placeholder="Pilih parent materi"
+                  >
+                    {parentOptions.map((topic) => (
+                      <option key={topic.id} value={topic.id.toString()}>
+                        {topic.mataPelajaran.nama} - {topic.tingkat.nama} - {topic.nama}
+                      </option>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
               <FormControl>
-                <FormLabel>Parent Materi</FormLabel>
-                <Select
-                  name="parentId"
-                  value={form.values.parentId}
-                  onChange={form.handleChange}
-                  placeholder="Tanpa parent"
-                >
-                  {parentOptions.map((topic) => (
-                    <option key={topic.id} value={topic.id.toString()}>
-                      {topic.mataPelajaran.nama} - {topic.tingkat.nama} - {topic.nama}
-                    </option>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl>
-                <FormLabel>Urutan Dalam Parent</FormLabel>
+                <FormLabel>{formMode === 'sub' ? 'Urutan Dalam Parent' : 'Urutan Parent'}</FormLabel>
                 <Input
                   name="sequenceOrder"
                   type="number"
@@ -430,11 +579,7 @@ export default React.memo(function TopicsTab() {
             </Button>
             <Button
               variant="ghost"
-                onClick={() => {
-                  onClose();
-                  setEditingTopic(null);
-                  form.reset();
-                }}
+              onClick={handleClose}
             >
               Batal
             </Button>

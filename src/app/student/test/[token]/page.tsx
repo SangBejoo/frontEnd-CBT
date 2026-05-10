@@ -59,6 +59,7 @@ interface Question {
   questionType: string;
   isAnswered: boolean;
   materi: {
+    id: number;
     nama: string;
     mataPelajaran: {
       nama: string;
@@ -735,6 +736,16 @@ export default function TestPage() {
   }
 
   const currentQuestion = sessionData.soal[currentQuestionIndex];
+  const nextQuestion = sessionData.soal[currentQuestionIndex + 1];
+  const isLastQuestion = currentQuestionIndex === sessionData.soal.length - 1;
+  const isSubMateriBoundary =
+    !isLastQuestion &&
+    currentQuestion.materi?.id !== nextQuestion?.materi?.id;
+  const nextButtonLabel = isLastQuestion
+    ? 'Selesai'
+    : isSubMateriBoundary
+      ? 'Sub Materi Berikutnya'
+      : 'Selanjutnya';
   const getQuestionStatus = (index: number) => {
     const nomorUrut = sessionData.soal[index].nomorUrut;
     const question = sessionData.soal[index];
@@ -936,6 +947,11 @@ export default function TestPage() {
                   <Text fontSize="sm" color="gray.600">
                     {currentQuestion.materi.nama}
                   </Text>
+                  {isSubMateriBoundary && (
+                    <Text fontSize="xs" color="orange.600" mt={1}>
+                      Setelah soal ini, Anda akan lanjut ke sub materi berikutnya.
+                    </Text>
+                  )}
                 </VStack>
                 <Box ml="auto">
                   <Button
@@ -1754,14 +1770,14 @@ export default function TestPage() {
                     </Button>
                   )}
                   
-                  {currentQuestionIndex === sessionData.soal.length - 1 ? (
+                  {isLastQuestion ? (
                     <Button
                       colorScheme="green"
                       onClick={handleFinish}
                       isLoading={submitting}
                       rightIcon={<Text>✓</Text>}
                     >
-                      Selesai
+                      {nextButtonLabel}
                     </Button>
                   ) : (
                     <Button
@@ -1769,7 +1785,7 @@ export default function TestPage() {
                       colorScheme="purple"
                       rightIcon={<Text>→</Text>}
                     >
-                      Selanjutnya
+                      {nextButtonLabel}
                     </Button>
                   )}
                 </HStack>

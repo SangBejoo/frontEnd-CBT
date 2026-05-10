@@ -265,7 +265,7 @@ const MateriSelect = memo(({ value, onChange, topics }: {
         onChange(topic || null);
       }}
     >
-      <option value="" disabled hidden>Pilih Materi</option>
+      <option value="" disabled hidden>Pilih Sub Materi</option>
       {topics.map((t) => (
         <option key={t.id} value={t.id}>
           {t.mataPelajaran.nama} • {t.tingkat.nama} • {t.nama}
@@ -508,7 +508,7 @@ const QuestionFormModal = memo(({
         <ModalBody py={6}>
           <VStack spacing={4} align="stretch">
             <FormControl isRequired>
-              <FormLabel>Materi</FormLabel>
+              <FormLabel>Sub Materi</FormLabel>
               <MateriSelect value={formValues.materi?.id} onChange={(topic) => updateFormField('materi', topic)} topics={topics} />
             </FormControl>
 
@@ -1083,7 +1083,7 @@ export default function QuestionsTab() {
 
   const handleConfirmCsvImport = useCallback(async () => {
     if (!importMateri?.id || !importCsvFile) {
-      toast({ title: 'Pilih materi dan file CSV terlebih dahulu', status: 'warning' });
+      toast({ title: 'Pilih sub materi dan file CSV terlebih dahulu', status: 'warning' });
       return;
     }
 
@@ -1194,10 +1194,10 @@ export default function QuestionsTab() {
             <ModalBody>
               <VStack spacing={4} align="stretch">
                 <Text fontSize="sm" color="gray.600">
-                  Pilih materi tujuan, lalu unggah CSV yang hanya berisi data soal, opsi, jawaban benar, dan pembahasan.
+                  Pilih sub materi tujuan, lalu unggah CSV yang hanya berisi data soal, opsi, jawaban benar, dan pembahasan.
                 </Text>
                 <FormControl isRequired>
-                  <FormLabel>Materi</FormLabel>
+                  <FormLabel>Sub Materi</FormLabel>
                   <MateriSelect
                     value={importMateri?.id}
                     onChange={(topic) => setImportMateri(topic)}
