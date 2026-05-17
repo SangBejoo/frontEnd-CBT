@@ -667,11 +667,6 @@ export default function TestPage() {
       }
       // Clear localStorage after completing test
       localStorage.removeItem(`test_session_${token}`);
-      if (!isAutoSubmit) {
-        toast({ title: 'Tes selesai!', status: 'success' });
-      }
-      // Clear localStorage after completing test
-      localStorage.removeItem(`test_session_${token}`);
       // Small delay before redirect
       setTimeout(() => {
         router.push(`/student/results/${token}`);

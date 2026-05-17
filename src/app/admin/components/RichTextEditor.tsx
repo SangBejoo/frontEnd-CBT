@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { Box, Button, HStack, Text, Wrap, WrapItem } from '@chakra-ui/react';
+import { Box, Button, HStack, Text, Wrap, WrapItem, useFormControlContext } from '@chakra-ui/react';
 import { hasRenderableHtml, sanitizeHtml } from '../../shared/html-utils';
 
 interface RichTextEditorProps {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -20,11 +21,14 @@ const TOOLBAR: Array<{ label: string; command: string; value?: string }> = [
 ];
 
 export default function RichTextEditor({
+  id: idProp,
   value,
   onChange,
   placeholder = 'Tulis konten...',
   minHeight = 120,
 }: RichTextEditorProps) {
+  const formControl = useFormControlContext();
+  const id = idProp ?? formControl?.id;
   const editorRef = useRef<HTMLDivElement>(null);
 
   const syncEditor = useCallback(() => {
@@ -118,6 +122,7 @@ export default function RichTextEditor({
           </Text>
         )}
         <Box
+          id={id}
           ref={editorRef}
           contentEditable
           suppressContentEditableWarning

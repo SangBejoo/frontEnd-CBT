@@ -962,8 +962,9 @@ export default function QuestionsTab() {
     }
   };
 
-  const parseCsvCorrectIndex = (value: string) => {
-    const trimmed = value.trim();
+  const parseCsvCorrectIndex = (value: string | number) => {
+    const raw = typeof value === 'number' ? String(value) : (value ?? '');
+    const trimmed = raw.trim();
     if (!trimmed) {
       return NaN;
     }
@@ -1074,7 +1075,8 @@ export default function QuestionsTab() {
 
       await bulkCreateQuestions(items);
       toast({ title: `${items.length} soal berhasil dikirim untuk bulk import`, status: 'success' });
-    } catch {
+    } catch (err) {
+      console.error('CSV import error:', err);
       toast({ title: 'Gagal import CSV', status: 'error' });
     } finally {
       setIsImportingCsv(false);
